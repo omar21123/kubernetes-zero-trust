@@ -1,0 +1,66 @@
+name: Validation Zero Trust
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python tools/validate.py
+      - run: python -m unittest discover -s tests -v
+      - name: Installer Kyverno CLI 1.15.2 et verifier les politiques
+        run: |
+          curl --fail --location --silent --show-error -o /tmp/kyverno.tar.gz https://github.com/kyverno/kyverno/releases/download/v1.15.2/kyverno-cli_v1.15.2_linux_x86_64.tar.gz
+          echo "c90520ba24fb8b8df003ec22d6d2621e4a3d3c7497665fdcf84e9eab4ff1dfe0  /tmp/kyverno.tar.gz" | sha256sum --check
+          tar -xzf /tmp/kyverno.tar.gz -C /tmp kyverno
+          sudo install /tmp/kyverno /usr/local/bin/kyverno
+          kyverno test tests/kyverno --remove-color
+  integration:
+    needs: offline
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.33.1
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.18.3
+      - name: Installer kind v0.29.0
+        working-directory: /tmp
+        run: |
+          curl --fail --location --silent --show-error -o kind-linux-amd64 https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
+          curl --fail --location --silent --show-error -o kind.sha256sum https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64.sha256sum
+          echo "$(cut -d ' ' -f 1 kind.sha256sum)  kind-linux-amd64" | sha256sum --check
+          chmod +x kind-linux-amd64
+          sudo install kind-linux-amd64 /usr/local/bin/kind
+      - run: python tools/lab.py up
+      - run: python tools/lab.py test
+      - run: python tools/lab.py l7-on
+      - run: python tools/lab.py test --l7
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl --context kind-zero-trust get pods -A -o wide || true
+          kubectl --context kind-zero-trust get events -A --sort-by=.lastTimestamp || true
+          kubectl --context kind-zero-trust get clusterpolicy zt-workload-baseline -o yaml || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zero-trust-results
+          path: artifacts/*.json
+          if-no-files-found: ignore
+      - run: python tools/lab.py down --confirm-delete
+        if: always()

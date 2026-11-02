@@ -1,0 +1,59 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: zt-workload-baseline
+  annotations:
+    policies.kyverno.io/title: Zero Trust workload baseline
+    policies.kyverno.io/description: Restricted PSS plus explicit identity and immutable root filesystem.
+spec:
+  background: true
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 10
+  rules:
+    - name: restricted-pod-security
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [zt-edge, zt-app, zt-data, zt-untrusted]
+      validate:
+        failureAction: Enforce
+        message: "ZT: respecter Pod Security Restricted v1.29 (privileged, hostPath, capabilities, root et escalade interdits)."
+        podSecurity:
+          level: restricted
+          version: v1.29
+    - name: explicit-identity
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [zt-edge, zt-app, zt-data, zt-untrusted]
+      validate:
+        failureAction: Enforce
+        message: "ZT: ServiceAccount dedie et montage automatique du jeton desactive obligatoires."
+        pattern:
+          spec:
+            serviceAccountName: "!default"
+            automountServiceAccountToken: false
+    - name: immutable-root-and-bounded-resources
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [zt-edge, zt-app, zt-data, zt-untrusted]
+      validate:
+        failureAction: Enforce
+        message: "ZT: racine en lecture seule et requests/limits CPU et memoire obligatoires."
+        foreach:
+          - list: "request.object.spec.[containers, initContainers][]"
+            pattern:
+              securityContext:
+                readOnlyRootFilesystem: true
+              resources:
+                requests:
+                  cpu: "?*"
+                  memory: "?*"
+                limits:
+                  cpu: "?*"
+                  memory: "?*"

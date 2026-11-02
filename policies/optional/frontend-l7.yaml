@@ -1,0 +1,22 @@
+# lab.py l7-on removes the broad frontend egress allow before this policy is used.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: frontend-http-only
+  namespace: zt-edge
+spec:
+  endpointSelector:
+    matchLabels:
+      io.cilium.k8s.policy.serviceaccount: frontend
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: zt-app
+            k8s:app: api
+      toPorts:
+        - ports:
+            - {port: "8080", protocol: TCP}
+          rules:
+            http:
+              - {method: GET, path: "/health"}
+              - {method: GET, path: "/catalog"}

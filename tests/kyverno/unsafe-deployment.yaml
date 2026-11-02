@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-deployment
+  namespace: zt-untrusted
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admission-test
+  template:
+    metadata:
+      labels:
+        app: admission-test
+    spec:
+      serviceAccountName: probe
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: test
+        image: zero-trust-demo:1.0.0
+        imagePullPolicy: Never
+        command:
+        - python
+        - -c
+        - print('safe')
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+          privileged: true
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 96Mi

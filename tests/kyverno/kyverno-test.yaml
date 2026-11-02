@@ -1,0 +1,276 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: zero-trust-baseline
+policies:
+  - ../../policies/admission/workload-baseline.yaml
+resources:
+  - ../fixtures/safe.yaml
+  - ../fixtures/privileged.yaml
+  - ../fixtures/hostpath.yaml
+  - ../fixtures/capabilities.yaml
+  - ../fixtures/privilege-escalation.yaml
+  - ../fixtures/root.yaml
+  - ../fixtures/writable-root.yaml
+  - ../fixtures/default-account.yaml
+  - ../fixtures/token-automount.yaml
+  - ../fixtures/init-privileged.yaml
+  - ../fixtures/host-network.yaml
+  - ../../manifests/30-workloads.yaml
+  - unsafe-deployment.yaml
+results:
+  - policy: zt-workload-baseline
+    rule: autogen-restricted-pod-security
+    resources: [bad-deployment]
+    kind: Deployment
+    result: fail
+  - policy: zt-workload-baseline
+    rule: autogen-explicit-identity
+    resources: [bad-deployment]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-immutable-root-and-bounded-resources
+    resources: [bad-deployment]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [admission-safe]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [admission-safe]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [admission-safe]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-privileged]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-privileged]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-privileged]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-hostpath]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-hostpath]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-hostpath]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-capabilities]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-capabilities]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-capabilities]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-privilege-escalation]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-privilege-escalation]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-privilege-escalation]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-root]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-root]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-root]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-writable-root]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-writable-root]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-writable-root]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-default-account]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-default-account]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-default-account]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-token-automount]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-token-automount]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-token-automount]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-init-privileged]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-init-privileged]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-init-privileged]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: restricted-pod-security
+    resources: [bad-host-network]
+    kind: Pod
+    result: fail
+  - policy: zt-workload-baseline
+    rule: explicit-identity
+    resources: [bad-host-network]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: immutable-root-and-bounded-resources
+    resources: [bad-host-network]
+    kind: Pod
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-restricted-pod-security
+    resources: [frontend]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-explicit-identity
+    resources: [frontend]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-immutable-root-and-bounded-resources
+    resources: [frontend]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-restricted-pod-security
+    resources: [api]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-explicit-identity
+    resources: [api]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-immutable-root-and-bounded-resources
+    resources: [api]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-restricted-pod-security
+    resources: [catalog]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-explicit-identity
+    resources: [catalog]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-immutable-root-and-bounded-resources
+    resources: [catalog]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-restricted-pod-security
+    resources: [auditor]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-explicit-identity
+    resources: [auditor]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-immutable-root-and-bounded-resources
+    resources: [auditor]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-restricted-pod-security
+    resources: [probe]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-explicit-identity
+    resources: [probe]
+    kind: Deployment
+    result: pass
+  - policy: zt-workload-baseline
+    rule: autogen-immutable-root-and-bounded-resources
+    resources: [probe]
+    kind: Deployment
+    result: pass

@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+  namespace: zt-edge
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api
+  namespace: zt-app
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auditor
+  namespace: zt-app
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: catalog
+  namespace: zt-data
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: probe
+  namespace: zt-untrusted
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: public-info-reader
+  namespace: zt-app
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [public-info]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auditor-public-info
+  namespace: zt-app
+subjects:
+  - kind: ServiceAccount
+    name: auditor
+    namespace: zt-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: public-info-reader
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: public-info
+  namespace: zt-app
+data:
+  environment: zero-trust-lab
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: other-info
+  namespace: zt-app
+data:
+  purpose: existing-resource-that-auditor-cannot-read

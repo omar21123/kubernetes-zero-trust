@@ -1,0 +1,67 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-to-api
+  namespace: zt-edge
+spec:
+  podSelector:
+    matchLabels: {app: frontend}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: zt-app}
+          podSelector:
+            matchLabels: {app: api}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-from-frontend
+  namespace: zt-app
+spec:
+  podSelector:
+    matchLabels: {app: api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: zt-edge}
+          podSelector:
+            matchLabels: {app: frontend}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-to-catalog
+  namespace: zt-app
+spec:
+  podSelector:
+    matchLabels: {app: api}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: zt-data}
+          podSelector:
+            matchLabels: {app: catalog}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: catalog-from-api
+  namespace: zt-data
+spec:
+  podSelector:
+    matchLabels: {app: catalog}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: zt-app}
+          podSelector:
+            matchLabels: {app: api}
+      ports: [{protocol: TCP, port: 8080}]

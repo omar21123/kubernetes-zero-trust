@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zt-edge
+  labels:
+    zero-trust: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zt-app
+  labels:
+    zero-trust: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zt-data
+  labels:
+    zero-trust: enabled
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zt-untrusted
+  labels:
+    zero-trust: enabled

@@ -1,0 +1,10 @@
+.tools/
+.venv/
+__pycache__/
+*.pyc
+artifacts/*
+!artifacts/.gitkeep
+.env
+*.kubeconfig
+*.pem
+*.key

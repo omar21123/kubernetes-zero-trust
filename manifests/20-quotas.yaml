@@ -1,0 +1,51 @@
+apiVersion: "v1"
+kind: "ResourceQuota"
+metadata:
+  name: "lab-budget"
+  namespace: "zt-edge"
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "1Gi"
+    limits.cpu: "4"
+    limits.memory: "2Gi"
+    pods: "12"
+---
+apiVersion: "v1"
+kind: "ResourceQuota"
+metadata:
+  name: "lab-budget"
+  namespace: "zt-app"
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "1Gi"
+    limits.cpu: "4"
+    limits.memory: "2Gi"
+    pods: "12"
+---
+apiVersion: "v1"
+kind: "ResourceQuota"
+metadata:
+  name: "lab-budget"
+  namespace: "zt-data"
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "1Gi"
+    limits.cpu: "4"
+    limits.memory: "2Gi"
+    pods: "12"
+---
+apiVersion: "v1"
+kind: "ResourceQuota"
+metadata:
+  name: "lab-budget"
+  namespace: "zt-untrusted"
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "1Gi"
+    limits.cpu: "4"
+    limits.memory: "2Gi"
+    pods: "12"
