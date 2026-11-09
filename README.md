@@ -8,7 +8,7 @@ Le projet fournit une application à trois tiers, quatre namespaces, cinq Servic
 
 Le laboratoire tourne sur **AWS EKS** (Kubernetes managé) : Terraform crée le cluster et ses nœuds, puis un script Python installe les protections et l'application. **Débutants : suivre le [guide pas à pas](docs/guide-aws.md).**
 
-> État de validation : avec la pile précédente (Kubernetes 1.33, Cilium 1.18.3, Kyverno 1.15.2), les politiques et l'application ont passé **50/50** contrôles (profil de base) et **51/51** (L7) sur un vrai cluster k3s dans la CI. Avec la pile EKS actuelle, les politiques passent les 60 tests de Kyverno CLI 1.17.1 et le code Terraform est validé et testé avec un AWS simulé ; le cluster EKS réel reste à constater lors du premier `apply`. Détails : [validation.md](docs/validation.md).
+> État de validation : avec la pile actuelle (Kubernetes 1.35, Cilium 1.19.7, Kyverno 1.17.1), les politiques et l'application passent **50/50** contrôles (profil de base) et **51/51** (L7) sur un vrai cluster k3s dans la CI GitHub. Le code Terraform EKS est validé et testé avec un AWS simulé ; le cluster EKS réel reste à constater lors du premier `apply`. Détails : [validation.md](docs/validation.md).
 
 ## Architecture
 
