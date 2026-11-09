@@ -30,7 +30,7 @@ Les namespaces représentent des domaines de responsabilité ; les identités re
 
 ## Résultats et méthode
 
-Les contrôles hors cluster vérifient le fonctionnement de la chaîne applicative, le traitement des erreurs et la cohérence structurelle des manifests. Les contrôles d'intégration doivent être exécutés sur le cluster k3s (VM AWS ou CI GitHub) pour attester le comportement réel du réseau, de RBAC et de l'admission. L'état effectivement constaté est consigné dans [validation.md](validation.md) et ne doit pas être confondu avec les résultats attendus de la soutenance.
+Les contrôles hors cluster vérifient le fonctionnement de la chaîne applicative, le traitement des erreurs et la cohérence structurelle des manifests. Les contrôles d'intégration doivent être exécutés sur un vrai cluster (EKS sur AWS, ou k3s dans la CI GitHub) pour attester le comportement réel du réseau, de RBAC et de l'admission. L'état effectivement constaté est consigné dans [validation.md](validation.md) et ne doit pas être confondu avec les résultats attendus de la soutenance.
 
 Les tests utilisent des contrôles positifs : une cible doit répondre à son appelant autorisé, et la résolution DNS doit fonctionner avant d'interpréter un échec. Le refus RBAC est un vrai HTTP 403 après une requête autorisée ; le refus d'admission doit citer Kyverno. Hubble complète l'attribution d'un blocage réseau.
 

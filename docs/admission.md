@@ -2,7 +2,7 @@
 
 Le projet installe un seul moteur d'admission et une seule ClusterPolicy métier : `zt-workload-baseline`. Elle cible explicitement les quatre namespaces du laboratoire. Les composants d'infrastructure restent hors de ce périmètre, car le CNI notamment a besoin de privilèges système.
 
-La baseline PSS est figée à **v1.29**, acceptée par le validateur de Kyverno CLI 1.15.2 et appliquée ici sur Kubernetes 1.33.1. Il s'agit de la version du référentiel de sécurité, distincte de celle du serveur Kubernetes. Les contrôles demandés par le sujet sont couverts par ce référentiel.
+La baseline PSS est figée à **v1.29**, acceptée par le validateur de Kyverno 1.17.1 et appliquée ici sur Kubernetes 1.35 (EKS). Il s'agit de la version du référentiel de sécurité, distincte de celle du serveur Kubernetes. Les contrôles demandés par le sujet sont couverts par ce référentiel.
 
 ## Contrat imposé
 
@@ -18,7 +18,7 @@ Les policies PSS de Kyverno couvrent le socle Restricted sans réécrire manuell
 
 `validate.failureAction: Enforce` rejette la configuration. `webhookConfiguration.failurePolicy: Fail` fait échouer l'admission si le webhook applicable ne répond pas correctement. Ce choix protège la cohérence mais impose d'exploiter Kyverno avec une disponibilité adaptée.
 
-Le projet n'active pas en parallèle Pod Security Admission Restricted sur les namespaces : cela permet d'identifier les rejets Kyverno sans dupliquer la même baseline. Sur un cluster qui possède déjà PSA Restricted, un manifest dangereux peut être rejeté plus tôt ; le test pédagogique attend alors à tort la signature Kyverno. Utiliser le cluster k3s dédié créé par Terraform pour reproduire les preuves.
+Le projet n'active pas en parallèle Pod Security Admission Restricted sur les namespaces : cela permet d'identifier les rejets Kyverno sans dupliquer la même baseline. Sur un cluster qui possède déjà PSA Restricted, un manifest dangereux peut être rejeté plus tôt ; le test pédagogique attend alors à tort la signature Kyverno. Utiliser le cluster EKS dédié créé par Terraform pour reproduire les preuves.
 
 ## Essais sans créer de ressources dangereuses
 

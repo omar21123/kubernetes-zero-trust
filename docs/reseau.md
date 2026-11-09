@@ -27,7 +27,7 @@ Les règles n'autorisent pas les flux node/host et les sondes kubelet de la mêm
 
 ## DNS
 
-Les règles ciblent `kube-system` **et** `k8s-app: kube-dns`, sur UDP et TCP 53. Elles sont adaptées à CoreDNS dans k3s (labels `k8s-app: kube-dns`), pas à NodeLocal DNSCache ni à un résolveur externe. Le mode `dns` teste la résolution via le résolveur du pod ; `dns-tcp` effectue une vraie requête DNS sur TCP et vérifie une réponse A.
+Les règles ciblent `kube-system` **et** `k8s-app: kube-dns`, sur UDP et TCP 53. Elles sont adaptées à CoreDNS tel que déployé par EKS (et par k3s dans la CI), avec le label `k8s-app: kube-dns`, pas à NodeLocal DNSCache ni à un résolveur externe. Le mode `dns` teste la résolution via le résolveur du pod ; `dns-tcp` effectue une vraie requête DNS sur TCP et vérifie une réponse A.
 
 Résoudre le nom d'un service ne donne aucun droit de s'y connecter. Les tests de refus passent à la fois par le Service et par la PodIP, avec les flux autorisés comme contrôles positifs.
 

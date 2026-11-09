@@ -1,0 +1,20 @@
+# Cilium sur EKS, en mode "chaînage" (chaining) avec le réseau d'AWS :
+#   - le plugin AWS VPC CNI (déjà installé par EKS) donne une IP du VPC à chaque pod ;
+#   - Cilium s'ajoute derrière lui pour appliquer les NetworkPolicy et alimenter Hubble.
+# Référence : docs.cilium.io, "AWS VPC CNI plugin" (CNI chaining).
+cni:
+  chainingMode: aws-cni
+  exclusive: false            # ne pas supprimer la configuration du CNI d'AWS
+enableIPv4Masquerade: false   # le VPC route directement les IP des pods
+routingMode: native
+endpointRoutes:
+  enabled: true
+kubeProxyReplacement: false   # EKS garde kube-proxy pour les Services
+operator:
+  replicas: 1                 # suffisant pour un laboratoire
+hubble:
+  enabled: true               # observabilité : voir les flux autorisés / refusés
+  relay:
+    enabled: true
+  ui:
+    enabled: true

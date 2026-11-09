@@ -16,10 +16,10 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python tools/validate.py
       - run: python -m unittest discover -s tests -v
-      - name: Installer Kyverno CLI 1.15.2 et verifier les politiques
+      - name: Installer Kyverno CLI 1.17.1 et verifier les politiques
         run: |
-          curl --fail --location --silent --show-error -o /tmp/kyverno.tar.gz https://github.com/kyverno/kyverno/releases/download/v1.15.2/kyverno-cli_v1.15.2_linux_x86_64.tar.gz
-          echo "c90520ba24fb8b8df003ec22d6d2621e4a3d3c7497665fdcf84e9eab4ff1dfe0  /tmp/kyverno.tar.gz" | sha256sum --check
+          curl --fail --location --silent --show-error -o /tmp/kyverno.tar.gz https://github.com/kyverno/kyverno/releases/download/v1.17.1/kyverno-cli_v1.17.1_linux_x86_64.tar.gz
+          echo "d0c0f52e8fc8d66a3663b63942b131e5f91b63f7644b3e446546f79142d1b7a3  /tmp/kyverno.tar.gz" | sha256sum --check
           tar -xzf /tmp/kyverno.tar.gz -C /tmp kyverno
           sudo install /tmp/kyverno /usr/local/bin/kyverno
           kyverno test tests/kyverno --remove-color
@@ -33,9 +33,9 @@ jobs:
           terraform init -backend=false -input=false
           terraform validate
           terraform test
-      - run: bash -n cluster/install-k3s.sh
+      - run: bash -n tests/k3s/install-k3s.sh
 
-  # Même installation que la VM AWS (cluster/install-k3s.sh), mais sur la machine de CI.
+  # Test gratuit sur un vrai Kubernetes 1.35 (k3s) : mêmes politiques et mêmes tests que sur EKS.
   integration:
     needs: offline
     runs-on: ubuntu-24.04
@@ -47,13 +47,13 @@ jobs:
           python-version: '3.13'
       - uses: azure/setup-kubectl@v4
         with:
-          version: v1.33.1
+          version: v1.35.5
       - uses: azure/setup-helm@v4.3.0
         with:
           version: v3.18.3
       - name: Installer k3s
         run: |
-          sudo env KUBECONFIG_USER="$USER" bash cluster/install-k3s.sh
+          sudo env KUBECONFIG_USER="$USER" bash tests/k3s/install-k3s.sh
           cp ~/zero-trust.kubeconfig .
       - run: python tools/lab.py up
       - run: python tools/lab.py test

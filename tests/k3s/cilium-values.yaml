@@ -1,4 +1,4 @@
-# Cilium = réseau des pods (CNI) + application des NetworkPolicy, sur k3s.
+# Cilium sur le k3s de la CI (seul CNI). Pour EKS : cluster/cilium-eks.yaml.
 ipam:
   mode: kubernetes          # k3s attribue la plage d'IP des pods au nœud
 kubeProxyReplacement: false # k3s garde son kube-proxy pour les Services

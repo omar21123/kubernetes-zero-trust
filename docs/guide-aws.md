@@ -1,6 +1,8 @@
-# Guide pas à pas : le laboratoire sur AWS avec Terraform
+# Guide pas à pas : le laboratoire sur AWS EKS avec Terraform
 
-Ce guide part de zéro. Suivez les étapes dans l'ordre : chaque commande est expliquée. Durée totale : environ 30 minutes la première fois, 10 minutes ensuite.
+Ce guide part de zéro. Suivez les étapes dans l'ordre : chaque commande est expliquée. Durée : environ 45 minutes la première fois (dont 15 minutes d'attente pendant la création du cluster).
+
+> **Coût** : environ **0,20 $/heure** tant que le cluster existe, soit **environ 0,50 $ pour une séance de 2 heures**. Toujours finir par `terraform -chdir=terraform destroy` (étape 9) : un cluster oublié coûte environ 5 $ par jour.
 
 ## 1. Ce que l'on construit
 
@@ -11,33 +13,33 @@ flowchart LR
       KC[kubectl / Helm / lab.py]
     end
     subgraph AWS[AWS - région us-east-1]
-      subgraph VM[VM EC2 Ubuntu - t3.large]
-        K3S[Kubernetes k3s]
-        CIL[Cilium + Hubble]
-        KYV[Kyverno]
-        APPS[5 workloads du projet]
+      CP[Plan de contrôle EKS<br/>géré par AWS]
+      subgraph VPC[VPC par défaut]
+        N1[Nœud 1 - t3.medium]
+        N2[Nœud 2 - t3.medium]
       end
-      FW[Groupe de sécurité : votre IP seulement]
     end
-    TF -- "1. crée la VM (API AWS)" --> VM
-    KC -- "2. HTTPS 6443 via le pare-feu" --> K3S
+    TF -- "1. crée IAM + EKS + nœuds" --> CP
+    KC -- "2. API Kubernetes, votre IP uniquement" --> CP
+    CP --- N1
+    CP --- N2
 ```
 
-1. **Terraform** crée dans AWS une machine virtuelle (VM). Au premier démarrage, elle installe Kubernetes tout seule.
-2. Depuis votre PC, **`lab.py`** se connecte à ce Kubernetes et installe les protections du projet (Cilium, Kyverno, RBAC, NetworkPolicy), puis l'application.
+1. **Terraform** crée dans AWS un cluster **EKS** : AWS gère le plan de contrôle (API server, etcd) et Terraform ajoute 2 machines « workers » qui exécutent les pods.
+2. Depuis votre PC, **`lab.py`** installe les protections du projet (Cilium, Kyverno, RBAC, NetworkPolicy), puis l'application.
 
 | Outil | À quoi il sert | En une phrase |
 |---|---|---|
-| **AWS EC2** | Louer une VM dans le cloud | Un ordinateur Linux chez Amazon, payé à l'heure |
+| **AWS EKS** | Kubernetes managé | AWS fait tourner et met à jour le plan de contrôle ; on ne gère que les nœuds |
 | **Terraform** | Créer l'infrastructure à partir de fichiers texte | On décrit ce qu'on veut (`terraform/*.tf`), Terraform le crée, et le supprime avec `destroy` |
-| **k3s** | Kubernetes complet en un seul programme | Le même Kubernetes que d'habitude, mais léger : un seul nœud suffit |
+| **AWS CLI** (`aws`) | Ligne de commande AWS | Sert à s'identifier auprès d'AWS et à créer l'accès `kubectl` |
 | **kubectl** | Télécommande de Kubernetes | `kubectl get pods` interroge l'API du cluster |
 | **Helm** | Installateur de logiciels pour Kubernetes | Installe Cilium et Kyverno en une commande |
-| **Cilium** | Réseau des pods + NetworkPolicy | Applique le « tout est interdit sauf… » réseau ; Hubble montre les flux |
+| **Cilium** | Application des NetworkPolicy + Hubble | Applique le « tout est interdit sauf… » réseau ; Hubble montre les flux |
 | **Kyverno** | Contrôle d'admission | Refuse les pods dangereux (privilégiés, root, hostPath…) |
 | **tools/lab.py** | Automatisation du projet | Enchaîne les commandes kubectl/Helm et les démonstrations |
 
-**Pourquoi une seule VM et pas EKS (le Kubernetes géré d'AWS) ?** C'est plus simple (4 ressources AWS au lieu d'une vingtaine), plus rapide (5 minutes au lieu de 20), moins cher (environ 2 $/jour au lieu de 6 $), compatible avec AWS Academy, et cela garde Cilium et toutes les démonstrations du projet. Les mécanismes Kubernetes étudiés (RBAC, NetworkPolicy, admission) sont exactement les mêmes.
+**Réseau sur EKS.** EKS installe son propre plugin réseau, **AWS VPC CNI** : chaque pod reçoit une vraie adresse IP du VPC. Ce plugin n'applique pas nos NetworkPolicy par défaut. On ajoute donc **Cilium en mode chaînage** (*chaining*) : AWS fournit les IP, Cilium filtre les flux et alimente Hubble.
 
 ## 2. Installer les outils (une seule fois)
 
@@ -45,10 +47,10 @@ flowchart LR
 
 ```powershell
 winget install --id Hashicorp.Terraform
+winget install --id Amazon.AWSCLI
 winget install --id Kubernetes.kubectl
 winget install --id Helm.Helm
 winget install --id Python.Python.3.13
-winget install --id Amazon.AWSCLI
 winget install --id Git.Git
 ```
 
@@ -56,16 +58,15 @@ Fermer puis rouvrir PowerShell, et vérifier :
 
 ```powershell
 terraform version
+aws --version
 kubectl version --client
 helm version
 python --version
-aws --version
-ssh -V
 ```
 
-`ssh` est déjà inclus dans Windows 10 et 11. Si `python` ouvre le Microsoft Store, utiliser `py` à la place de `python` dans tout le guide.
+Si `python` ouvre le Microsoft Store, utiliser `py` à la place de `python` dans tout le guide.
 
-**macOS** : `brew install terraform kubectl helm awscli python`. **Linux** : suivre les liens de [exploitation.md](exploitation.md#installation-des-outils).
+**macOS** : `brew install terraform awscli kubectl helm python`. **Linux** : suivre les liens de [exploitation.md](exploitation.md#installation-des-outils).
 
 Récupérer ensuite le projet, une seule fois, et travailler depuis ce dossier pour toutes les commandes suivantes :
 
@@ -74,45 +75,42 @@ git clone https://github.com/omar21123/kubernetes-zero-trust.git
 cd kubernetes-zero-trust
 ```
 
-## 3. Donner à Terraform l'accès à votre compte AWS
+## 3. Préparer le compte AWS (une seule fois)
 
-Terraform utilise les mêmes identifiants que la commande `aws`.
+1. **Ne pas utiliser le compte racine** (l'adresse e-mail du compte) pour le travail. Dans la console AWS → **IAM** → **Users** → **Create user**, créer un utilisateur (par exemple `terraform-lab`) et lui attacher la politique `AdministratorAccess`. C'est large, mais Terraform doit créer des rôles IAM et un cluster EKS. Ce compte ne sert qu'au laboratoire.
+2. Ouvrir cet utilisateur → **Security credentials** → **Create access key** → usage **CLI**. Noter la clé et le secret : le secret ne s'affiche qu'une fois.
+3. Sur le PC :
 
-**Cas A : AWS Academy Learner Lab (compte fourni par l'école)**
+   ```powershell
+   aws configure
+   ```
 
-1. Dans le Learner Lab : **Start Lab**, attendre le voyant vert.
-2. Cliquer sur **AWS Details**, puis sur **AWS CLI : Show**.
-3. Copier tout le bloc `[default] … aws_session_token=…` dans le fichier `credentials` :
-   - Windows : `C:\Users\<votre-nom>\.aws\credentials` (créer le dossier `.aws` s'il n'existe pas) ;
-   - macOS/Linux : `~/.aws/credentials`.
-4. Ces identifiants expirent à la fin de la session (environ 4 h) : **refaire cette étape à chaque nouvelle session**.
+   Coller la clé, puis le secret, choisir la région `us-east-1` et le format `json`.
+4. Vérifier (doit afficher votre numéro de compte et `user/terraform-lab`) :
 
-Le Learner Lab n'autorise que les régions `us-east-1` et `us-west-2` ; le projet utilise `us-east-1` par défaut.
+   ```powershell
+   aws sts get-caller-identity
+   ```
 
-**Cas B : compte AWS personnel**
+5. **Créer une alerte de budget** : console AWS → **Billing** → **Budgets** → **Create budget** → modèle *Zero spend budget* ou *Monthly cost budget* à 5 $. Vous recevrez un e-mail si quelque chose reste allumé par erreur.
 
-1. Ne pas utiliser le compte racine : créer dans IAM un utilisateur avec une clé d'accès.
-2. Lancer `aws configure`, coller la clé, choisir la région `us-east-1`.
-3. Créer une alerte de budget (Billing → Budgets) à 10 $ pour éviter les surprises.
+**Pour un groupe** : une seule personne lance `terraform apply` et `destroy` (l'état Terraform est stocké sur son PC). Chaque coéquipier peut avoir son propre utilisateur IAM dans le même compte ; ajoutez leurs ARN dans `extra_admin_arns` (étape 5) pour qu'ils puissent utiliser `kubectl`.
 
-**Vérifier** (doit afficher votre numéro de compte) :
+## 4. Comprendre les fichiers Terraform
 
-```powershell
-aws sts get-caller-identity
-```
+| Fichier | Ce qu'il crée ou décrit |
+|---|---|
+| `versions.tf` | Versions de Terraform et des plugins (AWS, HTTP) |
+| `variables.tf` | Paramètres : région, version Kubernetes (1.35), type et nombre de nœuds, IP autorisées, coéquipiers |
+| `network.tf` | **Rien n'est créé** : lecture du VPC par défaut, des sous-réseaux et de votre IP publique |
+| `iam.tf` | 2 rôles IAM : un pour EKS, un pour les nœuds, avec les seules politiques AWS nécessaires |
+| `eks.tf` | Le cluster EKS, le modèle des VM (disque chiffré, métadonnées protégées) et le groupe de 2 nœuds |
+| `outputs.tf` | Valeurs affichées à la fin : nom du cluster, région |
+| `terraform.tfvars.example` | Modèle pour changer un paramètre (copier en `terraform.tfvars`) |
+| `tests/plan.tftest.hcl` | Test automatique avec un AWS simulé (`terraform -chdir=terraform test`) |
+| `terraform.tfstate` (créé) | **Mémoire** de Terraform : ce qu'il a créé. Ne pas supprimer ni publier |
 
-## 4. Créer une clé SSH (une seule fois)
-
-La clé SSH sert à récupérer le fichier d'accès au cluster sur la VM. La clé **privée** reste sur votre PC ; AWS ne reçoit que la clé **publique** (`.pub`).
-
-```powershell
-mkdir $HOME\.ssh -Force
-ssh-keygen -t ed25519 -f $HOME\.ssh\zero-trust
-```
-
-Appuyer deux fois sur Entrée (pas de phrase de passe). Sous macOS/Linux : `ssh-keygen -t ed25519 -f ~/.ssh/zero-trust`.
-
-## 5. Créer l'infrastructure avec Terraform
+## 5. Créer le cluster avec Terraform
 
 ```powershell
 terraform -chdir=terraform init
@@ -120,49 +118,35 @@ terraform -chdir=terraform init
 
 `init` télécharge les plugins AWS et HTTP dans `terraform/.terraform/`. À faire une seule fois.
 
+*(Optionnel, groupe)* Pour ajouter des coéquipiers ou plusieurs IP, copier `terraform/terraform.tfvars.example` en `terraform/terraform.tfvars` et compléter `extra_admin_arns` / `allowed_cidrs`.
+
 ```powershell
 terraform -chdir=terraform plan
 ```
 
-`plan` montre ce qui **va** être créé, sans rien créer. Lisez la fin : `Plan: 5 to add, 0 to change, 0 to destroy.`
+`plan` montre ce qui **va** être créé, sans rien créer. Lisez la fin : `Plan: 9 to add, 0 to change, 0 to destroy.`
+
+| Ressource | Rôle |
+|---|---|
+| `aws_iam_role.cluster` + 1 `aws_iam_role_policy_attachment` | Identité d'EKS |
+| `aws_iam_role.nodes` + 3 `aws_iam_role_policy_attachment` | Identité des nœuds |
+| `aws_eks_cluster.lab` | Le cluster Kubernetes 1.35 |
+| `aws_launch_template.nodes` | Modèle des VM workers |
+| `aws_eks_node_group.nodes` | Les 2 VM workers |
 
 ```powershell
 terraform -chdir=terraform apply
 ```
 
-Taper `yes`. Après 1 à 2 minutes, Terraform affiche les sorties (`Outputs`) : l'IP publique, la commande SSH et l'étape suivante.
-
-**Ce que Terraform vient de créer** (fichier `terraform/main.tf`) :
-
-| Ressource Terraform | Ce que c'est | Pourquoi |
-|---|---|---|
-| `aws_key_pair.lab` | Votre clé SSH publique | Se connecter à la VM sans mot de passe |
-| `aws_security_group.node` | Pare-feu AWS | Seule **votre IP** peut joindre SSH (22) et l'API Kubernetes (6443) |
-| `aws_eip.node` | IP publique fixe | L'adresse ne change pas si la VM redémarre |
-| `aws_instance.node` | La VM Ubuntu 24.04, 2 vCPU / 8 Go | Elle exécute `cluster/install-k3s.sh` au premier démarrage |
-| `aws_eip_association.node` | Lien IP ↔ VM | Attache l'IP fixe à la VM |
-
-**Les fichiers du dossier `terraform/`** :
-
-| Fichier | Rôle |
-|---|---|
-| `versions.tf` | Versions de Terraform et des plugins (AWS, HTTP) |
-| `variables.tf` | Paramètres : région, taille de VM, chemin de la clé SSH, IP autorisées |
-| `main.tf` | Les ressources ci-dessus, commentées |
-| `user-data.sh.tftpl` | Script lancé par la VM au premier démarrage (il appelle `cluster/install-k3s.sh`) |
-| `outputs.tf` | Valeurs affichées à la fin : IP, commande SSH |
-| `terraform.tfvars.example` | Modèle pour changer un paramètre (copier en `terraform.tfvars`) |
-| `terraform.tfstate` (créé) | **Mémoire** de Terraform : ce qu'il a créé. Ne pas supprimer ni publier |
+Taper `yes`. **Patience : 12 à 18 minutes** (environ 10 minutes pour le cluster, puis 3 à 5 pour les nœuds). Ne fermez pas le terminal.
 
 ## 6. Récupérer l'accès au cluster
-
-La VM installe k3s pendant 2 à 3 minutes. Cette commande attend la fin de l'installation, puis copie le fichier d'accès par SSH :
 
 ```powershell
 python tools/lab.py kubeconfig
 ```
 
-Elle crée `zero-trust.kubeconfig` à la racine du projet. **Ce fichier donne un accès administrateur au cluster** : ne jamais le publier (il est ignoré par Git).
+La commande lance `aws eks update-kubeconfig` et crée `zero-trust.kubeconfig` à la racine du projet. Ce fichier ne contient pas de mot de passe : à chaque commande, `kubectl` demande un jeton temporaire à AWS avec **votre** identité IAM. Ne le publiez pas pour autant (il est ignoré par Git).
 
 Pour que `kubectl` l'utilise dans ce terminal :
 
@@ -178,7 +162,7 @@ export KUBECONFIG=$PWD/zero-trust.kubeconfig     # macOS / Linux
 kubectl get nodes
 ```
 
-Le nœud est **NotReady** : c'est normal. k3s a été installé **sans réseau de pods**, car c'est Cilium qui va le fournir à l'étape suivante.
+Deux nœuds `Ready` doivent apparaître.
 
 ## 7. Installer la sécurité et l'application
 
@@ -188,7 +172,7 @@ python tools/lab.py up
 
 Environ 5 minutes. Le script installe, dans cet ordre :
 
-1. **Cilium** (Helm) → le nœud passe **Ready**.
+1. **Cilium** (Helm, valeurs `cluster/cilium-eks.yaml`), puis redémarre CoreDNS pour qu'il soit protégé par Cilium.
 2. **Kyverno** (Helm) → le contrôle d'admission est actif.
 3. Les **namespaces**, les **ServiceAccounts** et le **RBAC** (`manifests/00` à `20`).
 4. La politique d'admission Kyverno (`policies/admission/`).
@@ -225,7 +209,7 @@ La démonstration manuelle, commande par commande, est dans [demonstrations.md](
 kubectl -n zt-edge port-forward service/frontend 8080:8080
 ```
 
-Ouvrir <http://localhost:8080>. Le trafic passe par l'API Kubernetes chiffrée : l'application n'est **jamais** exposée sur Internet.
+Ouvrir <http://localhost:8080>. Le trafic passe par l'API Kubernetes chiffrée : l'application n'est **jamais** exposée sur Internet (aucun Load Balancer, donc aucun coût supplémentaire).
 
 **Voir les flux réseau dans Hubble** :
 
@@ -235,29 +219,43 @@ kubectl -n kube-system port-forward service/hubble-ui 12000:80
 
 Ouvrir <http://localhost:12000>, choisir le namespace `zt-edge`, relancer `python tools/lab.py test` : les flux refusés apparaissent en rouge (`DROPPED`).
 
-## 9. Arrêter pour ne pas payer
+**Extension L7 (facultative).** `python tools/lab.py l7-on` puis `python tools/lab.py test --l7` vérifient que `GET /admin` est refusé en HTTP 403. En chaînage avec le CNI d'AWS, le filtrage HTTP de Cilium n'est pas garanti : si ce test échoue sur EKS, présentez-le comme une limite du mode chaînage (il passe dans la CI, où Cilium est le seul CNI). Revenir ensuite au profil de base avec `python tools/lab.py l7-off`.
 
-| Situation | Commande | Effet |
+## 9. Tout supprimer (à chaque fin de séance)
+
+```powershell
+terraform -chdir=terraform destroy
+```
+
+Taper `yes`. Environ 10 minutes. Tout ce que Terraform a créé disparaît : cluster, nœuds, disques, rôles IAM. Cilium, Kyverno et l'application disparaissent avec le cluster. Supprimer ensuite `zero-trust.kubeconfig`, qui ne sert plus à rien.
+
+Vérifier dans la console AWS → **EKS** qu'aucun cluster ne reste, et → **EC2** → *Instances* qu'aucune instance `zero-trust-node` ne tourne.
+
+| Élément | Prix (us-east-1) | Séance de 2 h (+ ~30 min de création/suppression) |
 |---|---|---|
-| **Fin de séance (recommandé)** | `terraform -chdir=terraform destroy` puis `yes` | Tout est supprimé dans AWS. On recrée tout en 10 minutes avec les étapes 5 à 7 |
-| Pause courte | Console AWS → EC2 → Instances → *Stop instance* | La VM est arrêtée, k3s redémarre seul au *Start*. Le disque et l'IP restent facturés (quelques centimes par jour) |
+| Plan de contrôle EKS, version 1.35 en support standard | 0,10 $/h | ≈ 0,25 $ |
+| 2 nœuds t3.medium | 2 × 0,0416 $/h | ≈ 0,21 $ |
+| IP publiques des nœuds et disques 2 × 20 Go | ≈ 0,01 $/h | ≈ 0,03 $ |
+| **Total** | **≈ 0,20 $/h** | **≈ 0,50 $** |
 
-Coût indicatif en `us-east-1` quand la VM tourne : environ **0,09 $/heure** (t3.large 0,083 $ + disque + IP), soit environ 2 $ par jour. Avec le Learner Lab, la VM s'arrête automatiquement à la fin de la session ; elle consomme quand même des crédits tant qu'elle existe.
+Ce qui pourrait faire grimper la facture, et pourquoi ce projet l'évite :
 
-Après `destroy`, supprimer aussi `zero-trust.kubeconfig` : il ne sert plus à rien.
+- **Version Kubernetes en support étendu** : 0,60 $/h au lieu de 0,10 $/h. Le projet utilise la 1.35 (support standard jusqu'en mars 2027) et `upgrade_policy = STANDARD`.
+- **NAT Gateway** : environ 0,045 $/h. Non utilisée : les nœuds sont dans les sous-réseaux publics du VPC par défaut.
+- **Load Balancer** : environ 0,02 $/h. Non utilisé : on passe par `kubectl port-forward`.
+- **Oubli du `destroy`** : environ 5 $/jour. D'où l'alerte de budget de l'étape 3.
 
 ## 10. Problèmes fréquents
 
 | Message ou symptôme | Cause | Solution |
 |---|---|---|
-| `No valid credential sources found` ou `ExpiredToken` | Identifiants AWS absents ou expirés | Refaire l'étape 3 (Learner Lab : à chaque session) |
-| `no matching EC2 VPC found` | Le compte n'a pas de réseau par défaut | `aws ec2 create-default-vpc`, puis relancer `apply` |
-| `InvalidKeyPair.Duplicate` ou `InvalidGroup.Duplicate` | Une ancienne installation existe encore dans le compte | Supprimer la paire de clés `zero-trust` ou le groupe de sécurité `zero-trust-node` dans la console EC2, ou relancer `destroy` depuis le dossier qui contient l'ancien `terraform.tfstate` |
-| `Invalid value for "path"… no file exists` | Pas de clé SSH | Faire l'étape 4 |
-| `lab.py kubeconfig` répète « pas encore prêt » plus de 5 minutes | L'installation de k3s a échoué | `ssh` (commande de `terraform output ssh_command`), puis `sudo tail -n 50 /var/log/cloud-init-output.log` |
-| `kubectl` ou `ssh` : *timeout* | Votre IP publique a changé (autre Wi-Fi, partage de connexion) | Relancer `terraform -chdir=terraform apply` : le pare-feu est mis à jour avec la nouvelle IP |
-| Un coéquipier n'arrive pas à se connecter | Seule l'IP de celui qui a lancé Terraform est autorisée | Ajouter les IP dans `terraform.tfvars` (`allowed_cidrs`) puis `apply` |
-| `UNPROTECTED PRIVATE KEY FILE` (Windows) | Droits trop larges sur la clé privée | `icacls $HOME\.ssh\zero-trust /inheritance:r /grant:r "$($env:USERNAME):R"` |
+| `No valid credential sources found` | AWS CLI non configurée | Refaire l'étape 3 |
+| `no matching EC2 VPC found` | Le compte n'a pas de VPC par défaut | `aws ec2 create-default-vpc`, puis relancer `apply` |
+| `EntityAlreadyExists: Role with name zero-trust-eks-…` ou `ResourceInUseException` (cluster) | Une ancienne installation existe encore | Relancer `destroy` depuis le dossier qui contient l'ancien `terraform.tfstate`, ou supprimer le cluster `zero-trust` et les rôles `zero-trust-eks-*` dans la console |
+| `UnsupportedAvailabilityZoneException` | Zone non prise en charge par EKS | Relancer `apply` ; si besoin changer de région (`aws_region`) |
+| `apply` dure plus de 20 minutes sur le node group | Les nœuds n'arrivent pas à rejoindre le cluster | Console EKS → Compute → node group → *Health issues* |
+| `kubectl` : `You must be logged in to the server` | Vous n'utilisez pas l'identité AWS qui a créé le cluster | `aws sts get-caller-identity` ; coéquipier : ajouter son ARN dans `extra_admin_arns` puis `apply` |
+| `kubectl` : *timeout* | Votre IP publique a changé (autre Wi-Fi, partage de connexion) | Relancer `terraform -chdir=terraform apply` : l'IP autorisée est mise à jour (quelques minutes) |
 | `python` ouvre le Microsoft Store | Alias Windows | Utiliser `py tools/lab.py …` |
 
 Autres symptômes Kubernetes : voir [exploitation.md](exploitation.md#diagnostic).
@@ -268,23 +266,29 @@ Le principe Zero Trust s'applique aussi **autour** du cluster :
 
 | Mesure | Où | Ce qu'elle empêche |
 |---|---|---|
-| Pare-feu limité à votre IP, application non exposée | `aws_security_group.node` | Scan et attaque de l'API Kubernetes ou de SSH depuis Internet |
-| Accès SSH par clé, sans mot de passe | `aws_key_pair.lab` | Attaque par force brute de mots de passe |
-| Aucune permission AWS (rôle IAM) donnée à la VM | `aws_instance.node` | Un pod compromis ne peut rien faire dans le compte AWS |
-| IMDSv2 obligatoire, limité à 1 saut | `metadata_options` | Un pod ne peut pas lire les métadonnées AWS de la VM |
-| Disque chiffré | `root_block_device` | Lecture des données si le disque était copié |
-| Secrets Kubernetes chiffrés | `--secrets-encryption` dans `install-k3s.sh` | Lecture des Secrets en clair dans la base de k3s |
+| API Kubernetes publique **limitée à votre IP** | `public_access_cidrs` (`eks.tf`) | Attaque de l'API depuis Internet |
+| Nœuds → API par le **réseau privé** du VPC | `endpoint_private_access` | Exposer le trafic des nœuds à Internet |
+| Accès au cluster par **identité IAM**, sans mot de passe | `access_config` (mode `API`) | Partage de mots de passe ; chaque accès est nominatif et révocable |
+| Rôles IAM séparés avec des **politiques minimales** | `iam.tf` | Un composant qui obtient plus de droits AWS qu'il n'en a besoin |
+| **IMDSv2 limité à 1 saut** sur les nœuds | `aws_launch_template.nodes` | Un pod compromis ne peut pas voler les identifiants AWS du nœud |
+| **Disques des nœuds chiffrés** | `block_device_mappings` | Lecture des données si un disque était copié |
+| Aucun accès SSH aux nœuds, aucune application exposée | `eks.tf`, Services `ClusterIP` | Surface d'attaque réseau inutile |
+| **Pas de support étendu** automatique | `upgrade_policy` | Surcoût, et rappel de tenir le cluster à jour |
 
-**Limites assumées** : un seul nœud, donc pas de haute disponibilité, et le plan de contrôle partage la machine avec les pods. Une compromission du nœud vaut compromission du cluster (voir [blast-radius.md](blast-radius.md)). Le fichier `zero-trust.kubeconfig` est un accès administrateur : il doit rester sur le PC. L'état Terraform est local, donc un seul membre du groupe doit lancer `apply` et `destroy`.
+EKS chiffre également par défaut les données de l'API Kubernetes (dont les Secrets) avec une clé gérée par AWS.
+
+**Limites assumées** : AWS gère le plan de contrôle (on lui fait confiance) ; les nœuds sont dans des sous-réseaux publics pour éviter le coût d'une NAT Gateway (protégés par le groupe de sécurité d'EKS, mais une architecture de production les placerait en sous-réseaux privés) ; un administrateur du cluster ou un nœud compromis dépasse le modèle (voir [blast-radius.md](blast-radius.md)) ; l'état Terraform est local, donc une seule personne lance `apply` et `destroy`.
 
 ## 12. Ce qui a changé par rapport à la version locale (kind)
 
-| Avant (kind sur le PC) | Maintenant (AWS) |
+| Avant (kind sur le PC) | Maintenant (AWS EKS) |
 |---|---|
-| Docker Desktop + kind, 8 Go de RAM sur le PC | Aucune charge sur le PC : la VM AWS fait le travail |
-| 3 nœuds dans des conteneurs Docker | 1 VM EC2 avec k3s (Kubernetes 1.33.1) |
+| Docker Desktop + kind, 8 Go de RAM sur le PC | Rien de lourd sur le PC : AWS fait tourner le cluster |
+| 3 nœuds dans des conteneurs Docker | Plan de contrôle managé + 2 nœuds EC2 |
+| Kubernetes 1.33, Cilium 1.18.3, Kyverno 1.15.2 | Kubernetes 1.35, Cilium 1.19.7, Kyverno 1.17.1 |
+| Cilium seul CNI | Cilium chaîné derrière le CNI d'AWS |
 | Image Docker construite puis chargée dans kind | Image officielle `python:3.13.7-slim` + code dans un ConfigMap |
-| `python tools/lab.py up` crée le cluster | `terraform apply` crée la VM et le cluster, `lab.py up` installe le reste |
+| `python tools/lab.py up` crée le cluster | `terraform apply` crée le cluster, `lab.py up` installe le reste |
 | `python tools/lab.py down` | `terraform -chdir=terraform destroy` |
 
 Les politiques (RBAC, NetworkPolicy, Kyverno, Cilium) et les tests sont **inchangés**.

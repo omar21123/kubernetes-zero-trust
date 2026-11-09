@@ -1,11 +1,11 @@
-"""Cycle de vie du laboratoire sur le cluster k3s créé par Terraform dans AWS.
+"""Cycle de vie du laboratoire sur le cluster AWS EKS créé par Terraform.
 
 Ordre normal :
-    terraform -chdir=terraform apply   # crée la VM et installe Kubernetes (k3s)
-    python tools/lab.py kubeconfig     # récupère l'accès au cluster
+    terraform -chdir=terraform apply   # crée le cluster EKS et ses nœuds (~15 min)
+    python tools/lab.py kubeconfig     # crée l'accès au cluster (aws eks update-kubeconfig)
     python tools/lab.py up             # installe Cilium, Kyverno puis l'application
     python tools/lab.py test           # démonstrations automatiques
-    terraform -chdir=terraform destroy # supprime tout dans AWS
+    terraform -chdir=terraform destroy # supprime tout dans AWS (~10 min)
 """
 import argparse
 from datetime import datetime, timezone
@@ -19,9 +19,9 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 KUBECONFIG = ROOT / "zero-trust.kubeconfig"  # ignoré par Git : il donne un accès administrateur
 CONTEXT = "zero-trust"
-# Pile pédagogique figée (Kubernetes 1.33.1 : voir cluster/install-k3s.sh).
-CILIUM = "1.18.3"
-KYVERNO_CHART = "3.5.2"  # application Kyverno 1.15.2
+# Pile figée, compatible avec Kubernetes 1.35 (terraform/variables.tf).
+CILIUM = "1.19.7"
+KYVERNO_CHART = "3.7.1"  # application Kyverno 1.17.1
 NAMESPACES = ["zt-edge", "zt-app", "zt-data", "zt-untrusted"]
 APP_FILES = ["app/server.py", "app/check.py", "app/audit.py"]
 WORKLOADS = [("zt-edge", "frontend"), ("zt-app", "api"),
@@ -59,47 +59,46 @@ def doctor():
     print(run("helm", "version", "--short").stdout.strip())
     if not KUBECONFIG.exists():
         raise RuntimeError(f"{KUBECONFIG.name} absent. Lancer d'abord: python tools/lab.py kubeconfig")
-    nodes = k("get", "nodes", "-o", "wide", check=False, timeout=30)
+    if "aws" in KUBECONFIG.read_text(encoding="utf-8") and not shutil.which("aws"):
+        raise RuntimeError("Le kubeconfig EKS utilise la commande aws : installer AWS CLI")
+    nodes = k("get", "nodes", "-o", "wide", check=False, timeout=60)
     if nodes.returncode:
-        raise RuntimeError("API Kubernetes injoignable. VM demarree ? Votre IP a change ? "
+        raise RuntimeError("API Kubernetes injoignable. Identifiants AWS expires ? Votre IP a change ? "
                            "(relancer terraform apply)\n" + nodes.stderr)
     print(nodes.stdout, end="")
 
 
 def fetch_kubeconfig():
-    """Copie le kubeconfig de la VM AWS sur ce PC (SSH), en attendant la fin de l'installation de k3s."""
-    if not shutil.which("terraform") or not shutil.which("scp"):
-        raise RuntimeError("terraform et scp (OpenSSH) doivent etre dans le PATH")
+    """Crée zero-trust.kubeconfig pour le cluster EKS décrit par les sorties Terraform."""
+    if not shutil.which("terraform") or not shutil.which("aws"):
+        raise RuntimeError("terraform et aws (AWS CLI) doivent etre dans le PATH")
     outputs = json.loads(run("terraform", "-chdir=terraform", "output", "-json").stdout)
-    if "public_ip" not in outputs:
+    if "cluster_name" not in outputs:
         raise RuntimeError("Aucune sortie Terraform. Lancer d'abord: terraform -chdir=terraform apply")
-    address = outputs["public_ip"]["value"]
-    key = Path(outputs["ssh_private_key_path"]["value"]).expanduser()
-    print(f"Recuperation du kubeconfig depuis ubuntu@{address} (k3s s'installe en 2 a 3 minutes)...", flush=True)
-    for attempt in range(40):
-        result = run("scp", "-i", key, "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10",
-                     # Chemin relatif : sous Windows, "C:\\..." serait lu comme un hôte distant "C".
-                     f"ubuntu@{address}:zero-trust.kubeconfig", KUBECONFIG.name, check=False, timeout=60)
-        if result.returncode == 0:
-            print(f"OK: {KUBECONFIG.name} cree. Etape suivante: python tools/lab.py up")
-            return
-        print(f"  pas encore pret ({attempt + 1}/40), nouvel essai dans 15 s", flush=True)
-        time.sleep(15)
-    raise RuntimeError("Echec. Sur la VM, consulter: sudo tail -n 50 /var/log/cloud-init-output.log\n" + result.stderr)
+    # Chemin relatif : sous Windows, certains outils interprètent mal "C:\\...".
+    run("aws", "eks", "update-kubeconfig", "--region", outputs["aws_region"]["value"],
+        "--name", outputs["cluster_name"]["value"], "--alias", CONTEXT, "--kubeconfig", KUBECONFIG.name)
+    print(f"OK: {KUBECONFIG.name} cree (contexte {CONTEXT}). Etape suivante: python tools/lab.py up")
+
+
+def is_eks():
+    # Le CNI d'AWS (DaemonSet aws-node) n'existe que sur EKS ; la CI utilise k3s.
+    return k("get", "daemonset", "aws-node", "-n", "kube-system", check=False).returncode == 0
 
 
 def up():
     doctor()
-    print("Installation de Cilium (reseau + NetworkPolicy) puis Kyverno (admission)...", flush=True)
+    values = "cluster/cilium-eks.yaml" if is_eks() else "tests/k3s/cilium-values.yaml"
+    print(f"Installation de Cilium ({values}) puis Kyverno...", flush=True)
     run("helm", "repo", "add", "cilium", "https://helm.cilium.io/", "--force-update")
     run("helm", "repo", "add", "kyverno", "https://kyverno.github.io/kyverno/", "--force-update")
     run("helm", "repo", "update", timeout=300)
     helm("upgrade", "--install", "cilium", "cilium/cilium", "--version", CILIUM,
-         "--namespace", "kube-system", "-f", "cluster/cilium-values.yaml",
-         "--wait", "--timeout", "10m", timeout=660)
-    # Sans CNI le nœud est NotReady : il devient Ready une fois Cilium installé.
+         "--namespace", "kube-system", "-f", values, "--wait", "--timeout", "10m", timeout=660)
     k("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=300s", timeout=330)
-    # Preuve que les pods reçoivent bien un réseau : CoreDNS doit démarrer.
+    # Les pods démarrés avant Cilium (CoreDNS) ne sont pas encore gérés par lui :
+    # on les redémarre, et leur démarrage prouve que le réseau des pods fonctionne.
+    k("rollout", "restart", "deployment/coredns", "-n", "kube-system")
     k("rollout", "status", "deployment/coredns", "-n", "kube-system", "--timeout=300s", timeout=330)
     helm("upgrade", "--install", "kyverno", "kyverno/kyverno", "--version", KYVERNO_CHART,
          "--namespace", "kyverno", "--create-namespace",

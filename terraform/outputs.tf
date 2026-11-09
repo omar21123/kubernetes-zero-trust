@@ -1,27 +1,22 @@
 # Valeurs affichées à la fin de `terraform apply` (et par `terraform output`).
-# tools/lab.py les lit pour récupérer le kubeconfig.
+# tools/lab.py les lit pour créer le kubeconfig.
 
-output "public_ip" {
-  description = "IP publique de la VM Kubernetes"
-  value       = aws_eip.node.public_ip
+output "cluster_name" {
+  description = "Nom du cluster EKS"
+  value       = aws_eks_cluster.lab.name
 }
 
-output "ssh_private_key_path" {
-  description = "Clé privée SSH correspondant à la clé publique envoyée à AWS"
-  value       = trimsuffix(var.ssh_public_key_path, ".pub")
-}
-
-output "ssh_command" {
-  description = "Se connecter à la VM"
-  value       = "ssh -i ${trimsuffix(var.ssh_public_key_path, ".pub")} ubuntu@${aws_eip.node.public_ip}"
+output "aws_region" {
+  description = "Région du cluster"
+  value       = var.aws_region
 }
 
 output "allowed_cidrs" {
-  description = "Adresses autorisées par le pare-feu"
+  description = "Adresses autorisées à joindre l'API Kubernetes"
   value       = local.allowed_cidrs
 }
 
 output "next_step" {
   description = "Étape suivante"
-  value       = "Depuis la racine du dépôt : python tools/lab.py kubeconfig (attendre 2 à 3 minutes que k3s s'installe)"
+  value       = "Depuis la racine du dépôt : python tools/lab.py kubeconfig, puis python tools/lab.py up"
 }

@@ -6,9 +6,9 @@ Laboratoire documenté pour contrôler explicitement les **communications**, les
 
 Le projet fournit une application à trois tiers, quatre namespaces, cinq ServiceAccounts, un RBAC minimal, des politiques Default Deny, une politique Kyverno et des démonstrations automatisées. Cilium est le seul CNI ; Hubble observe ses décisions. Le filtrage HTTP L7 est une extension facultative.
 
-Le laboratoire tourne dans **AWS** : Terraform crée une VM EC2 qui exécute Kubernetes (k3s), puis un script Python installe les protections et l'application. **Débutants : suivre le [guide pas à pas](docs/guide-aws.md).**
+Le laboratoire tourne sur **AWS EKS** (Kubernetes managé) : Terraform crée le cluster et ses nœuds, puis un script Python installe les protections et l'application. **Débutants : suivre le [guide pas à pas](docs/guide-aws.md).**
 
-> État de validation : sur un vrai cluster k3s installé par le même script que la VM AWS (CI GitHub), **50/50** contrôles réussis en profil de base et **51/51** en profil L7. Le code Terraform est validé et testé avec un AWS simulé ; la création réelle sur un compte AWS reste à constater lors du premier `apply`. Détails : [validation.md](docs/validation.md).
+> État de validation : avec la pile précédente (Kubernetes 1.33, Cilium 1.18.3, Kyverno 1.15.2), les politiques et l'application ont passé **50/50** contrôles (profil de base) et **51/51** (L7) sur un vrai cluster k3s dans la CI. Avec la pile EKS actuelle, les politiques passent les 60 tests de Kyverno CLI 1.17.1 et le code Terraform est validé et testé avec un AWS simulé ; le cluster EKS réel reste à constater lors du premier `apply`. Détails : [validation.md](docs/validation.md).
 
 ## Architecture
 
@@ -40,21 +40,20 @@ Tous les pods peuvent interroger CoreDNS dans `kube-system` sur UDP/TCP 53. Les 
 
 ## Démarrage rapide
 
-Prérequis sur le PC : Terraform, kubectl, Helm, Python 3.11+ et OpenSSH ; un compte AWS (AWS Academy Learner Lab ou personnel) configuré pour la commande `aws`. Docker n'est pas nécessaire. Détails et commandes Windows : [guide AWS](docs/guide-aws.md).
+Prérequis sur le PC : Terraform, AWS CLI configurée (`aws configure`), kubectl, Helm et Python 3.11+. Docker n'est pas nécessaire. Détails et commandes Windows : [guide AWS](docs/guide-aws.md).
 
 ```console
-ssh-keygen -t ed25519 -f ~/.ssh/zero-trust      # une seule fois
 terraform -chdir=terraform init                  # une seule fois
-terraform -chdir=terraform apply                 # crée la VM AWS + Kubernetes (k3s)
-python tools/lab.py kubeconfig                   # récupère l'accès au cluster
+terraform -chdir=terraform apply                 # crée le cluster EKS + 2 nœuds (~15 min)
+python tools/lab.py kubeconfig                   # crée l'accès kubectl
 python tools/lab.py up                           # Cilium, Kyverno, puis l'application
 python tools/lab.py test                         # démonstrations automatiques
-terraform -chdir=terraform destroy               # fin de séance : tout supprimer
+terraform -chdir=terraform destroy               # fin de séance : tout supprimer (~10 min)
 ```
 
-La pile pédagogique est figée : Kubernetes **1.33.1** (k3s), Cilium **1.18.3**, chart Kyverno **3.5.2** / application **1.15.2**, image `python:3.13.7-slim`. Ces versions servent à reproduire le laboratoire ; elles ne constituent pas une recommandation de versions maintenues. Elles sont centralisées dans `cluster/install-k3s.sh` et `tools/lab.py`.
+Pile figée : Kubernetes **1.35** (EKS, support standard jusqu'en mars 2027), Cilium **1.19.7** (chaîné au CNI d'AWS), chart Kyverno **3.7.1** / application **1.17.1**, image `python:3.13.7-slim`. Les versions sont centralisées dans `terraform/variables.tf` et `tools/lab.py`.
 
-Coût : environ 0,09 $/heure quand la VM tourne (t3.large en `us-east-1`). Lancer `destroy` à la fin de chaque séance.
+**Coût : environ 0,20 $/heure**, soit environ 0,50 $ pour une séance de 2 heures. Lancer `destroy` à la fin de chaque séance.
 
 Afficher l'application dans un autre terminal, après avoir défini `KUBECONFIG` sur `zero-trust.kubeconfig` :
 
@@ -97,19 +96,19 @@ Les résultats réels sont enregistrés dans `artifacts/integration.json` et `ar
 ## Organisation du dépôt
 
 ```text
-terraform/              VM AWS (EC2, pare-feu, IP fixe) qui installe k3s
+terraform/              Cluster AWS EKS : rôles IAM, cluster, nœuds (+ test simulé)
 app/                    Application Python, sans dépendance tierce (montée par ConfigMap)
-cluster/                Installation de k3s et valeurs Helm de Cilium / Kyverno
+cluster/                Valeurs Helm de Cilium (EKS) et de Kyverno
 manifests/              Namespaces, identités, RBAC, quotas et workloads
 policies/admission/     Baseline Kyverno Restricted + identité + filesystem
 policies/network/       Default Deny et autorisations Kubernetes L3/L4
 policies/cilium/        Accès du seul auditor à l'API Kubernetes
 policies/optional/      Filtrage HTTP L7 activable
 tools/                  Cycle de vie et vérification structurelle
-tests/                  Tests Python et manifests dangereux pour dry-run serveur
+tests/                  Tests Python, manifests dangereux et k3s de la CI
 docs/                   Dossier technique et support de soutenance
 artifacts/              Rapports produits à l'exécution, ignorés par Git
-.github/workflows/      Contrôles hors cluster, Terraform et démonstrations sur k3s
+.github/workflows/      Contrôles hors cluster, Terraform et démonstrations sur un k3s gratuit
 ```
 
 ## Contrôles hors cluster
@@ -118,11 +117,11 @@ artifacts/              Rapports produits à l'exécution, ignorés par Git
 python -m pip install -r requirements-dev.txt
 python tools/validate.py
 python -m unittest discover -s tests -v
-# Si Kyverno CLI 1.15.2 est installe :
+# Si Kyverno CLI 1.17.1 est installe :
 kyverno test tests/kyverno --remove-color
 ```
 
-Le contrôle structurel ne remplace pas l'évaluation des règles. Kyverno CLI vérifie les cas conformes, les violations et les règles générées pour les Deployments ; les tests sur cluster vérifient ensuite les webhooks, RBAC et l'application réseau par Cilium. La CI GitHub Actions exécute ces niveaux, vérifie le code Terraform (`fmt`, `validate`), installe k3s avec le même script que la VM AWS, puis conserve les rapports d'intégration comme artifacts.
+Le contrôle structurel ne remplace pas l'évaluation des règles. Kyverno CLI vérifie les cas conformes, les violations et les règles générées pour les Deployments ; les tests sur cluster vérifient ensuite les webhooks, RBAC et l'application réseau par Cilium. La CI GitHub Actions exécute ces niveaux, vérifie le code Terraform (`fmt`, `validate`, `test`), rejoue toutes les démonstrations sur un petit cluster k3s gratuit, puis conserve les rapports d'intégration comme artifacts.
 
 ## Réponse à la question du projet
 
@@ -130,7 +129,7 @@ Appliquer Zero Trust consiste à **décrire quelques droits et flux nécessaires
 
 Ce laboratoire limite la propagation ; il n'apporte ni authentification métier entre services, ni chiffrement des flux HTTP, ni isolation forte contre un administrateur ou un nœud compromis. Les [limites](docs/blast-radius.md) font partie de l'analyse attendue.
 
-Pour tout supprimer dans AWS (VM, disque, IP, pare-feu) :
+Pour tout supprimer dans AWS (cluster, nœuds, disques, rôles IAM) :
 
 ```console
 terraform -chdir=terraform destroy

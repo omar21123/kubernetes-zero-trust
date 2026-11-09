@@ -9,7 +9,7 @@
 | `zt-data` | catalog | `system:serviceaccount:zt-data:catalog` | Servir un jeu de données HTTP fictif |
 | `zt-app` | auditor | `system:serviceaccount:zt-app:auditor` | Lire un ConfigMap précis pour démontrer RBAC |
 | `zt-untrusted` | probe | `system:serviceaccount:zt-untrusted:probe` | Simuler un autre tenant sans accès applicatif |
-| `kube-system` | Cilium, CoreDNS, Hubble | Identités système | Réseau, résolution et observation |
+| `kube-system` | AWS VPC CNI, Cilium, CoreDNS, Hubble | Identités système | Réseau (IP du VPC pour les pods, politiques Cilium), résolution et observation |
 | `kyverno` | Contrôleurs Kyverno | Identités système | Admission et rapports de conformité |
 
 Les applications ne sont exposées que par des Services `ClusterIP`. Le frontend appelle `/catalog` sur l'API ; l'API appelle `/items` sur catalog. Les routes `/health` servent aux sondes. La route fictive `/admin` de l'API permet de comparer L4 et L7 sans opération sensible réelle.
@@ -34,6 +34,6 @@ Les identités ServiceAccount ne constituent pas une authentification HTTP entre
 
 ## Ordre de déploiement
 
-`terraform apply (VM AWS + k3s sans CNI) → Cilium/Hubble → Kyverno → namespaces et identités → admission et politiques réseau → workloads → tests`.
+`terraform apply (IAM, cluster EKS, nœuds) → Cilium/Hubble en chaînage avec le CNI d'AWS → Kyverno → namespaces et identités → admission et politiques réseau → workloads → tests`.
 
 Les pods démarrent après les protections. Aucun cluster existant de production n'est ciblé par les scripts. Les exclusions système de Kyverno sont limitées par une liste explicite de quatre namespaces ; retirer leur label `zero-trust` ne désactive donc pas les règles d'admission.
