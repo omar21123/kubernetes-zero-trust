@@ -1,349 +1,352 @@
-apiVersion: "apps/v1"
-kind: "Deployment"
+# Les 5 workloads. Tous partagent la même configuration de sécurité ;
+# les commentaires du premier Deployment valent pour les autres.
+# frontend -> api -> catalog : application à trois tiers.
+# auditor : lit un seul ConfigMap via l'API Kubernetes (démonstration RBAC).
+# probe   : pod « non fiable » qui ne doit rien pouvoir joindre.
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: "frontend"
-  namespace: "zt-edge"
+  name: frontend
+  namespace: zt-edge
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: "frontend"
+      app: frontend
   template:
     metadata:
       labels:
-        app: "frontend"
+        app: frontend               # label utilisé par les NetworkPolicy
     spec:
-      serviceAccountName: "frontend"
-      automountServiceAccountToken: false
+      serviceAccountName: frontend       # identité dédiée (manifests/10-identities.yaml)
+      automountServiceAccountToken: false  # aucun jeton Kubernetes dans le pod
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: true               # jamais root
         runAsUser: 10001
         runAsGroup: 10001
         seccompProfile:
-          type: "RuntimeDefault"
+          type: RuntimeDefault           # filtre les appels système dangereux
       containers:
-        -
-          name: "frontend"
-          image: "zero-trust-demo:1.0.0"
-          imagePullPolicy: "Never"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                ["ALL"]
-          resources:
-            requests:
-              cpu: "25m"
-              memory: "32Mi"
-            limits:
-              cpu: "200m"
-              memory: "96Mi"
+        - name: frontend
+          image: python:3.13.7-slim      # image officielle, rien à construire
+          command: ["python", "/app/server.py"]
           env:
-            -
-              name: "TIER"
-              value: "frontend"
-            -
-              name: "UPSTREAM"
+            - name: TIER
+              value: frontend
+            - name: UPSTREAM
               value: "http://api.zt-app.svc.cluster.local:8080"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true   # système de fichiers en lecture seule
+            capabilities:
+              drop: ["ALL"]               # aucune capacité Linux
+          resources:                     # limites CPU/mémoire obligatoires
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
           ports:
-            -
+            - name: http
               containerPort: 8080
-              name: "http"
           readinessProbe:
-            httpGet:
-              path: "/health"
-              port: "http"
+            httpGet: {path: /health, port: http}
             initialDelaySeconds: 2
             periodSeconds: 3
           livenessProbe:
-            httpGet:
-              path: "/health"
-              port: "http"
+            httpGet: {path: /health, port: http}
             initialDelaySeconds: 5
             periodSeconds: 10
----
-apiVersion: "v1"
-kind: "Service"
-metadata:
-  name: "frontend"
-  namespace: "zt-edge"
-spec:
-  type: "ClusterIP"
-  selector:
-    app: "frontend"
-  ports:
-    -
-      name: "http"
-      port: 8080
-      targetPort: "http"
----
-apiVersion: "apps/v1"
-kind: "Deployment"
-metadata:
-  name: "api"
-  namespace: "zt-app"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: "api"
-  template:
-    metadata:
-      labels:
-        app: "api"
-    spec:
-      serviceAccountName: "api"
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        seccompProfile:
-          type: "RuntimeDefault"
-      containers:
-        -
-          name: "api"
-          image: "zero-trust-demo:1.0.0"
-          imagePullPolicy: "Never"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                ["ALL"]
-          resources:
-            requests:
-              cpu: "25m"
-              memory: "32Mi"
-            limits:
-              cpu: "200m"
-              memory: "96Mi"
-          env:
-            -
-              name: "TIER"
-              value: "api"
-            -
-              name: "UPSTREAM"
-              value: "http://catalog.zt-data.svc.cluster.local:8080"
-          ports:
-            -
-              containerPort: 8080
-              name: "http"
-          readinessProbe:
-            httpGet:
-              path: "/health"
-              port: "http"
-            initialDelaySeconds: 2
-            periodSeconds: 3
-          livenessProbe:
-            httpGet:
-              path: "/health"
-              port: "http"
-            initialDelaySeconds: 5
-            periodSeconds: 10
----
-apiVersion: "v1"
-kind: "Service"
-metadata:
-  name: "api"
-  namespace: "zt-app"
-spec:
-  type: "ClusterIP"
-  selector:
-    app: "api"
-  ports:
-    -
-      name: "http"
-      port: 8080
-      targetPort: "http"
----
-apiVersion: "apps/v1"
-kind: "Deployment"
-metadata:
-  name: "catalog"
-  namespace: "zt-data"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: "catalog"
-  template:
-    metadata:
-      labels:
-        app: "catalog"
-    spec:
-      serviceAccountName: "catalog"
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        seccompProfile:
-          type: "RuntimeDefault"
-      containers:
-        -
-          name: "catalog"
-          image: "zero-trust-demo:1.0.0"
-          imagePullPolicy: "Never"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                ["ALL"]
-          resources:
-            requests:
-              cpu: "25m"
-              memory: "32Mi"
-            limits:
-              cpu: "200m"
-              memory: "96Mi"
-          env:
-            -
-              name: "TIER"
-              value: "catalog"
-            -
-              name: "UPSTREAM"
-              value: ""
-          ports:
-            -
-              containerPort: 8080
-              name: "http"
-          readinessProbe:
-            httpGet:
-              path: "/health"
-              port: "http"
-            initialDelaySeconds: 2
-            periodSeconds: 3
-          livenessProbe:
-            httpGet:
-              path: "/health"
-              port: "http"
-            initialDelaySeconds: 5
-            periodSeconds: 10
----
-apiVersion: "v1"
-kind: "Service"
-metadata:
-  name: "catalog"
-  namespace: "zt-data"
-spec:
-  type: "ClusterIP"
-  selector:
-    app: "catalog"
-  ports:
-    -
-      name: "http"
-      port: 8080
-      targetPort: "http"
----
-apiVersion: "apps/v1"
-kind: "Deployment"
-metadata:
-  name: "auditor"
-  namespace: "zt-app"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: "auditor"
-  template:
-    metadata:
-      labels:
-        app: "auditor"
-    spec:
-      serviceAccountName: "auditor"
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        seccompProfile:
-          type: "RuntimeDefault"
-      containers:
-        -
-          name: "auditor"
-          image: "zero-trust-demo:1.0.0"
-          imagePullPolicy: "Never"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                ["ALL"]
-          resources:
-            requests:
-              cpu: "25m"
-              memory: "32Mi"
-            limits:
-              cpu: "200m"
-              memory: "96Mi"
-          command:
-            ["python","-c","import time; time.sleep(2147483647)"]
           volumeMounts:
-            -
-              name: "api-credentials"
-              mountPath: "/var/run/zt-kubernetes"
+            - name: app-code             # code Python publié par lab.py dans un ConfigMap
+              mountPath: /app
               readOnly: true
       volumes:
-        -
-          name: "api-credentials"
+        - name: app-code
+          configMap:
+            name: app-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: zt-edge
+spec:
+  type: ClusterIP                    # joignable seulement depuis le cluster
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: zt-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      serviceAccountName: api
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: python:3.13.7-slim
+          command: ["python", "/app/server.py"]
+          env:
+            - name: TIER
+              value: api
+            - name: UPSTREAM
+              value: "http://catalog.zt-data.svc.cluster.local:8080"
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: app-code
+          configMap:
+            name: app-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: zt-app
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: zt-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+    spec:
+      serviceAccountName: catalog
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: catalog
+          image: python:3.13.7-slim
+          command: ["python", "/app/server.py"]
+          env:
+            - name: TIER
+              value: catalog
+            - name: UPSTREAM
+              value: ""
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: app-code
+          configMap:
+            name: app-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog
+  namespace: zt-data
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auditor
+  namespace: zt-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auditor
+  template:
+    metadata:
+      labels:
+        app: auditor
+    spec:
+      serviceAccountName: auditor
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: auditor
+          image: python:3.13.7-slim
+          command: ["python", "-c", "import time; time.sleep(2147483647)"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+              readOnly: true
+            - name: api-credentials
+              mountPath: /var/run/zt-kubernetes
+              readOnly: true
+      volumes:
+        - name: app-code
+          configMap:
+            name: app-code
+        # Seul l'auditor reçoit un jeton : courte durée (10 min) et rotation automatique.
+        - name: api-credentials
           projected:
             defaultMode: 420
             sources:
-              -
-                serviceAccountToken:
-                  path: "token"
+              - serviceAccountToken:
+                  path: token
                   expirationSeconds: 600
-              -
-                configMap:
-                  name: "kube-root-ca.crt"
+              - configMap:
+                  name: kube-root-ca.crt
                   items:
-                    -
-                      key: "ca.crt"
-                      path: "ca.crt"
+                    - key: ca.crt
+                      path: ca.crt
 ---
-apiVersion: "apps/v1"
-kind: "Deployment"
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: "probe"
-  namespace: "zt-untrusted"
+  name: probe
+  namespace: zt-untrusted
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: "probe"
+      app: probe
   template:
     metadata:
       labels:
-        app: "probe"
+        app: probe
     spec:
-      serviceAccountName: "probe"
+      serviceAccountName: probe
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
         seccompProfile:
-          type: "RuntimeDefault"
+          type: RuntimeDefault
       containers:
-        -
-          name: "probe"
-          image: "zero-trust-demo:1.0.0"
-          imagePullPolicy: "Never"
+        - name: probe
+          image: python:3.13.7-slim
+          command: ["python", "-c", "import time; time.sleep(2147483647)"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
-              drop:
-                ["ALL"]
+              drop: ["ALL"]
           resources:
-            requests:
-              cpu: "25m"
-              memory: "32Mi"
-            limits:
-              cpu: "200m"
-              memory: "96Mi"
-          command:
-            ["python","-c","import time; time.sleep(2147483647)"]
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 96Mi}
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: app-code
+          configMap:
+            name: app-code

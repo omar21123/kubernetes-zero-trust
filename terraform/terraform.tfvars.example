@@ -1,0 +1,9 @@
+# Copier ce fichier en terraform.tfvars pour changer une valeur par défaut.
+# terraform.tfvars est ignoré par Git.
+
+# aws_region          = "us-east-1"
+# instance_type       = "t3.large"
+# ssh_public_key_path = "~/.ssh/zero-trust.pub"
+
+# Plusieurs membres du groupe avec des IP différentes :
+# allowed_cidrs = ["203.0.113.10/32", "198.51.100.20/32"]

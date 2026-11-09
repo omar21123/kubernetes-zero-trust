@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   offline:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,9 +23,21 @@ jobs:
           tar -xzf /tmp/kyverno.tar.gz -C /tmp kyverno
           sudo install /tmp/kyverno /usr/local/bin/kyverno
           kyverno test tests/kyverno --remove-color
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Verifier le code Terraform (sans compte AWS)
+        working-directory: terraform
+        run: |
+          terraform fmt -check -diff
+          terraform init -backend=false -input=false
+          terraform validate
+      - run: bash -n cluster/install-k3s.sh
+
+  # Même installation que la VM AWS (cluster/install-k3s.sh), mais sur la machine de CI.
   integration:
     needs: offline
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -38,14 +50,10 @@ jobs:
       - uses: azure/setup-helm@v4.3.0
         with:
           version: v3.18.3
-      - name: Installer kind v0.29.0
-        working-directory: /tmp
+      - name: Installer k3s
         run: |
-          curl --fail --location --silent --show-error -o kind-linux-amd64 https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
-          curl --fail --location --silent --show-error -o kind.sha256sum https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64.sha256sum
-          echo "$(cut -d ' ' -f 1 kind.sha256sum)  kind-linux-amd64" | sha256sum --check
-          chmod +x kind-linux-amd64
-          sudo install kind-linux-amd64 /usr/local/bin/kind
+          sudo env KUBECONFIG_USER="$USER" bash cluster/install-k3s.sh
+          cp ~/zero-trust.kubeconfig .
       - run: python tools/lab.py up
       - run: python tools/lab.py test
       - run: python tools/lab.py l7-on
@@ -53,14 +61,15 @@ jobs:
       - name: Diagnostics
         if: failure()
         run: |
-          kubectl --context kind-zero-trust get pods -A -o wide || true
-          kubectl --context kind-zero-trust get events -A --sort-by=.lastTimestamp || true
-          kubectl --context kind-zero-trust get clusterpolicy zt-workload-baseline -o yaml || true
+          export KUBECONFIG=$PWD/zero-trust.kubeconfig
+          kubectl get nodes -o wide || true
+          kubectl get pods -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp || true
+          kubectl -n kube-system logs daemonset/cilium --tail=80 || true
+          kubectl get clusterpolicy zt-workload-baseline -o yaml || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: zero-trust-results
           path: artifacts/*.json
           if-no-files-found: ignore
-      - run: python tools/lab.py down --confirm-delete
-        if: always()

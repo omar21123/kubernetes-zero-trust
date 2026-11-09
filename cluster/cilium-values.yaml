@@ -1,10 +1,15 @@
+# Cilium = réseau des pods (CNI) + application des NetworkPolicy, sur k3s.
 ipam:
-  mode: kubernetes
-kubeProxyReplacement: false
+  mode: kubernetes          # k3s attribue la plage d'IP des pods au nœud
+kubeProxyReplacement: false # k3s garde son kube-proxy pour les Services
 operator:
-  replicas: 1
+  replicas: 1               # un seul nœud dans ce laboratoire
+cni:
+  # k3s ne range pas les fichiers CNI aux emplacements standard.
+  binPath: /var/lib/rancher/k3s/data/cni
+  confPath: /var/lib/rancher/k3s/agent/etc/cni/net.d
 hubble:
-  enabled: true
+  enabled: true             # observabilité : voir les flux autorisés / refusés
   relay:
     enabled: true
   ui:

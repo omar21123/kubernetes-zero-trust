@@ -1,0 +1,19 @@
+#!/bin/bash
+# Exécuté UNE fois, en root, au premier démarrage de la VM (cloud-init).
+# Journal sur la VM : sudo tail -f /var/log/cloud-init-output.log
+set -euo pipefail
+
+# Attendre que l'IP publique fixe soit attachée : sinon le changement d'IP
+# pendant le téléchargement de k3s pourrait couper la connexion.
+for _ in $(seq 120); do
+  token=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
+  ip=$(curl -s -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+  [ "$ip" = "${public_ip}" ] && break
+  sleep 5
+done
+
+export PUBLIC_IP="${public_ip}"
+export KUBECONFIG_USER="ubuntu"
+
+# ---- Contenu de cluster/install-k3s.sh ----
+${install_script}
