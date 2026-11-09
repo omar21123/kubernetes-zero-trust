@@ -27,7 +27,7 @@ Les règles n'autorisent pas les flux node/host et les sondes kubelet de la mêm
 
 ## DNS
 
-Les règles ciblent `kube-system` **et** `k8s-app: kube-dns`, sur UDP et TCP 53. Elles sont adaptées à CoreDNS dans kind, pas à NodeLocal DNSCache ni à un résolveur externe. Le mode `dns` teste la résolution via le résolveur du pod ; `dns-tcp` effectue une vraie requête DNS sur TCP et vérifie une réponse A.
+Les règles ciblent `kube-system` **et** `k8s-app: kube-dns`, sur UDP et TCP 53. Elles sont adaptées à CoreDNS dans k3s (labels `k8s-app: kube-dns`), pas à NodeLocal DNSCache ni à un résolveur externe. Le mode `dns` teste la résolution via le résolveur du pod ; `dns-tcp` effectue une vraie requête DNS sur TCP et vérifie une réponse A.
 
 Résoudre le nom d'un service ne donne aucun droit de s'y connecter. Les tests de refus passent à la fois par le Service et par la PodIP, avec les flux autorisés comme contrôles positifs.
 
@@ -46,7 +46,7 @@ L'extension autorise uniquement GET `/health` et GET `/catalog` vers l'API. GET 
 Le chart Cilium active Hubble, Relay et son interface. Ouvrir un tunnel local :
 
 ```console
-kubectl --context kind-zero-trust -n kube-system port-forward service/hubble-ui 12000:80
+kubectl -n kube-system port-forward service/hubble-ui 12000:80
 ```
 
 Ouvrir [Hubble UI](http://localhost:12000), sélectionner le namespace et relancer les tests dans un autre terminal. Repérer frontend → api en `FORWARDED`, puis frontend → catalog et probe → api en `DROPPED` / `POLICY_DENIED` selon l'affichage de la version utilisée.
@@ -54,7 +54,7 @@ Ouvrir [Hubble UI](http://localhost:12000), sélectionner le namespace et relanc
 Pour une capture CLI, installer Hubble CLI puis, dans deux terminaux :
 
 ```console
-kubectl --context kind-zero-trust -n kube-system port-forward service/hubble-relay 4245:80
+kubectl -n kube-system port-forward service/hubble-relay 4245:80
 ```
 
 ```console

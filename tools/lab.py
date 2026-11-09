@@ -98,6 +98,8 @@ def up():
          "--wait", "--timeout", "10m", timeout=660)
     # Sans CNI le nœud est NotReady : il devient Ready une fois Cilium installé.
     k("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=300s", timeout=330)
+    # Preuve que les pods reçoivent bien un réseau : CoreDNS doit démarrer.
+    k("rollout", "status", "deployment/coredns", "-n", "kube-system", "--timeout=300s", timeout=330)
     helm("upgrade", "--install", "kyverno", "kyverno/kyverno", "--version", KYVERNO_CHART,
          "--namespace", "kyverno", "--create-namespace",
          "-f", "cluster/kyverno-values.yaml", "--wait", "--timeout", "10m", timeout=660)

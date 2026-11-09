@@ -4,10 +4,6 @@ ipam:
 kubeProxyReplacement: false # k3s garde son kube-proxy pour les Services
 operator:
   replicas: 1               # un seul nœud dans ce laboratoire
-cni:
-  # k3s ne range pas les fichiers CNI aux emplacements standard.
-  binPath: /var/lib/rancher/k3s/data/cni
-  confPath: /var/lib/rancher/k3s/agent/etc/cni/net.d
 hubble:
   enabled: true             # observabilité : voir les flux autorisés / refusés
   relay:

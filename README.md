@@ -6,7 +6,9 @@ Laboratoire documenté pour contrôler explicitement les **communications**, les
 
 Le projet fournit une application à trois tiers, quatre namespaces, cinq ServiceAccounts, un RBAC minimal, des politiques Default Deny, une politique Kyverno et des démonstrations automatisées. Cilium est le seul CNI ; Hubble observe ses décisions. Le filtrage HTTP L7 est une extension facultative.
 
-> État de validation : les tests Python, les contrôles structurels et les tests des politiques avec Kyverno CLI 1.15.2 ont été exécutés localement. Les démonstrations Kubernetes nécessitent Docker, kind, kubectl et Helm, absents de l'environnement de création. La CI est fournie mais son exécution distante n'est pas attestée. Voir [les résultats et leurs limites](docs/validation.md).
+Le laboratoire tourne dans **AWS** : Terraform crée une VM EC2 qui exécute Kubernetes (k3s), puis un script Python installe les protections et l'application. **Débutants : suivre le [guide pas à pas](docs/guide-aws.md).**
+
+> État de validation : voir [validation.md](docs/validation.md) pour ce qui a réellement été exécuté (tests hors cluster, `terraform validate`, CI sur k3s) et ce qui reste à faire sur un compte AWS.
 
 ## Architecture
 
@@ -36,29 +38,31 @@ flowchart LR
 
 Tous les pods peuvent interroger CoreDNS dans `kube-system` sur UDP/TCP 53. Les autres nouvelles connexions sont refusées. Les flux retour des connexions autorisées sont permis. Le catalogue est un service HTTP avec données fictives en mémoire : il représente le tiers données, sans prétendre être une base de données de production.
 
-## Démarrage
+## Démarrage rapide
 
-Prérequis : Docker avec conteneurs Linux, Python 3.11+, kind **v0.29.0**, kubectl **v1.33.x** et Helm **v3.18.x** dans le PATH. Prévoir environ 4 CPU, 8 Go de RAM disponibles et 10 Go de disque. Sous Windows, utiliser Docker Desktop avec son moteur Linux ; WSL2 est une alternative si les contraintes eBPF du moteur local empêchent Cilium de démarrer.
-
-La pile pédagogique est figée : Kubernetes **1.33.1**, Cilium **1.18.3**, chart Kyverno **3.5.2** / application **1.15.2**. Ces versions servent à reproduire le laboratoire ; elles ne constituent pas une recommandation de versions maintenues pour novembre 2026. Les versions et l'image kind par digest sont centralisées dans `tools/lab.py`. Actualiser ensemble les composants avant toute utilisation réelle.
-
-Depuis la racine du dépôt, dans PowerShell ou un shell Linux :
+Prérequis sur le PC : Terraform, kubectl, Helm, Python 3.11+ et OpenSSH ; un compte AWS (AWS Academy Learner Lab ou personnel) configuré pour la commande `aws`. Docker n'est pas nécessaire. Détails et commandes Windows : [guide AWS](docs/guide-aws.md).
 
 ```console
-python tools/lab.py doctor
-python tools/lab.py up
-python tools/lab.py test
+ssh-keygen -t ed25519 -f ~/.ssh/zero-trust      # une seule fois
+terraform -chdir=terraform init                  # une seule fois
+terraform -chdir=terraform apply                 # crée la VM AWS + Kubernetes (k3s)
+python tools/lab.py kubeconfig                   # récupère l'accès au cluster
+python tools/lab.py up                           # Cilium, Kyverno, puis l'application
+python tools/lab.py test                         # démonstrations automatiques
+terraform -chdir=terraform destroy               # fin de séance : tout supprimer
 ```
 
-`up` crée exclusivement le cluster `zero-trust`, installe les contrôles avant les workloads, construit l'image et la charge dans les nœuds kind. Les commandes kubectl et Helm du script ciblent explicitement `kind-zero-trust`. `up` refuse de réutiliser silencieusement un cluster existant ; `deploy` réapplique le projet et restaure le profil réseau de base.
+La pile pédagogique est figée : Kubernetes **1.33.1** (k3s), Cilium **1.18.3**, chart Kyverno **3.5.2** / application **1.15.2**, image `python:3.13.7-slim`. Ces versions servent à reproduire le laboratoire ; elles ne constituent pas une recommandation de versions maintenues. Elles sont centralisées dans `cluster/install-k3s.sh` et `tools/lab.py`.
 
-Afficher l'application dans un autre terminal :
+Coût : environ 0,09 $/heure quand la VM tourne (t3.large en `us-east-1`). Lancer `destroy` à la fin de chaque séance.
+
+Afficher l'application dans un autre terminal, après avoir défini `KUBECONFIG` sur `zero-trust.kubeconfig` :
 
 ```console
-kubectl --context kind-zero-trust -n zt-edge port-forward service/frontend 8080:8080
+kubectl -n zt-edge port-forward service/frontend 8080:8080
 ```
 
-Ouvrir [l'application locale](http://localhost:8080). Le port-forward utilise le canal d'administration Kubernetes ; il n'est pas une preuve d'autorisation réseau entre pods.
+Ouvrir [l'application locale](http://localhost:8080). Le port-forward utilise le canal d'administration Kubernetes ; il n'est pas une preuve d'autorisation réseau entre pods, et l'application n'est jamais exposée sur Internet.
 
 ## Démonstrations
 
@@ -78,6 +82,7 @@ Les résultats réels sont enregistrés dans `artifacts/integration.json` et `ar
 
 | Sujet | Document |
 |---|---|
+| **Pas à pas AWS + Terraform pour débutants** | [Guide AWS](docs/guide-aws.md) |
 | Composants, identités, frontières et hypothèses | [Architecture](docs/architecture.md) |
 | ServiceAccounts, permissions et droits dangereux | [Accès et RBAC](docs/acces-rbac.md) |
 | Matrice de flux, DNS, L7 et observabilité | [Sécurité réseau](docs/reseau.md) |
@@ -92,8 +97,9 @@ Les résultats réels sont enregistrés dans `artifacts/integration.json` et `ar
 ## Organisation du dépôt
 
 ```text
-app/                    Application Python et Dockerfile, sans dépendance tierce
-cluster/                Cluster kind et valeurs Helm
+terraform/              VM AWS (EC2, pare-feu, IP fixe) qui installe k3s
+app/                    Application Python, sans dépendance tierce (montée par ConfigMap)
+cluster/                Installation de k3s et valeurs Helm de Cilium / Kyverno
 manifests/              Namespaces, identités, RBAC, quotas et workloads
 policies/admission/     Baseline Kyverno Restricted + identité + filesystem
 policies/network/       Default Deny et autorisations Kubernetes L3/L4
@@ -103,7 +109,7 @@ tools/                  Cycle de vie et vérification structurelle
 tests/                  Tests Python et manifests dangereux pour dry-run serveur
 docs/                   Dossier technique et support de soutenance
 artifacts/              Rapports produits à l'exécution, ignorés par Git
-.github/workflows/      Contrôles hors cluster et démonstrations sur kind
+.github/workflows/      Contrôles hors cluster, Terraform et démonstrations sur k3s
 ```
 
 ## Contrôles hors cluster
@@ -116,7 +122,7 @@ python -m unittest discover -s tests -v
 kyverno test tests/kyverno --remove-color
 ```
 
-Le contrôle structurel ne remplace pas l'évaluation des règles. Kyverno CLI vérifie les cas conformes, les violations et les règles générées pour les Deployments ; les tests sur cluster vérifient ensuite les webhooks, RBAC et l'application réseau par Cilium. La CI GitHub Actions exécute ces niveaux, puis conserve les rapports d'intégration comme artifacts.
+Le contrôle structurel ne remplace pas l'évaluation des règles. Kyverno CLI vérifie les cas conformes, les violations et les règles générées pour les Deployments ; les tests sur cluster vérifient ensuite les webhooks, RBAC et l'application réseau par Cilium. La CI GitHub Actions exécute ces niveaux, vérifie le code Terraform (`fmt`, `validate`), installe k3s avec le même script que la VM AWS, puis conserve les rapports d'intégration comme artifacts.
 
 ## Réponse à la question du projet
 
@@ -124,8 +130,8 @@ Appliquer Zero Trust consiste à **décrire quelques droits et flux nécessaires
 
 Ce laboratoire limite la propagation ; il n'apporte ni authentification métier entre services, ni chiffrement des flux HTTP, ni isolation forte contre un administrateur ou un nœud compromis. Les [limites](docs/blast-radius.md) font partie de l'analyse attendue.
 
-Pour supprimer explicitement le cluster du laboratoire :
+Pour tout supprimer dans AWS (VM, disque, IP, pare-feu) :
 
 ```console
-python tools/lab.py down --confirm-delete
+terraform -chdir=terraform destroy
 ```

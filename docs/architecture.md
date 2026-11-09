@@ -34,6 +34,6 @@ Les identités ServiceAccount ne constituent pas une authentification HTTP entre
 
 ## Ordre de déploiement
 
-`kind sans CNI → Cilium/Hubble → Kyverno → namespaces et identités → admission et politiques réseau → workloads → tests`.
+`terraform apply (VM AWS + k3s sans CNI) → Cilium/Hubble → Kyverno → namespaces et identités → admission et politiques réseau → workloads → tests`.
 
 Les pods démarrent après les protections. Aucun cluster existant de production n'est ciblé par les scripts. Les exclusions système de Kyverno sont limitées par une liste explicite de quatre namespaces ; retirer leur label `zero-trust` ne désactive donc pas les règles d'admission.

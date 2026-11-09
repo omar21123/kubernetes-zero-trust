@@ -9,8 +9,9 @@ Références consultées lors de la conception le 2 novembre 2026. Les pages cou
 | [Kubernetes — Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/) | Baseline Restricted, capabilities, hostPath et privilèges |
 | [Kubernetes — Service Accounts](https://kubernetes.io/docs/concepts/security/service-accounts/) | Identités, jetons projetés et rotation |
 | [Kubernetes — Multi-tenancy](https://kubernetes.io/docs/concepts/security/multi-tenancy/) | Limites des namespaces et isolation des tenants |
-| [kind v0.29.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.29.0) | Image Kubernetes 1.33.1 et digest officiel |
-| [Cilium — Installation sur kind](https://docs.cilium.io/en/stable/installation/kind/) | Désactivation du CNI par défaut et installation Helm |
+| [k3s — Installation](https://docs.k3s.io/installation/configuration) | Options du serveur k3s (CNI désactivé, chiffrement des Secrets) |
+| [Terraform — provider AWS](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | Ressources EC2, groupe de sécurité, Elastic IP |
+| [Cilium — Installation sur k3s](https://docs.cilium.io/en/stable/installation/k3s/) | Désactivation de flannel et de la NetworkPolicy intégrée de k3s |
 | [Cilium — Exigences système v1.18](https://docs.cilium.io/en/v1.18/operations/system_requirements/) | Noyau et support eBPF |
 | [Cilium — Policy Language](https://docs.cilium.io/en/stable/security/policy/language/) | Entités, sélecteurs d'identité et filtrage HTTP |
 | [Cilium — Hubble Setup](https://docs.cilium.io/en/stable/observability/hubble/setup/) | Activation Relay/UI et observation des flux |

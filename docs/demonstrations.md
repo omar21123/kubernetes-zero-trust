@@ -5,10 +5,10 @@ Ce déroulé couvre les quatre preuves demandées. Prévoir 10 à 15 minutes apr
 ## 1. Montrer l'état et le fonctionnement nominal
 
 ```console
-kubectl --context kind-zero-trust get pods -A
-kubectl --context kind-zero-trust get networkpolicies -A
-kubectl --context kind-zero-trust get clusterpolicy zt-workload-baseline
-kubectl --context kind-zero-trust -n zt-edge exec deployment/frontend -- python /app/check.py allow http://127.0.0.1:8080/
+kubectl get pods -A
+kubectl get networkpolicies -A
+kubectl get clusterpolicy zt-workload-baseline
+kubectl -n zt-edge exec deployment/frontend -- python /app/check.py allow http://127.0.0.1:8080/
 ```
 
 Attendu : pods disponibles, ClusterPolicy Ready, JSON contenant le catalogue obtenu par frontend → api → catalog. Le loopback ne vérifie pas l'ingress du frontend ; la réponse complète exerce les deux communications inter-namespaces.
@@ -18,9 +18,9 @@ Attendu : pods disponibles, ClusterPolicy Ready, JSON contenant le catalogue obt
 Dans Hubble UI, sélectionner `zt-edge`. Exécuter :
 
 ```console
-kubectl --context kind-zero-trust -n zt-edge exec deployment/frontend -- python /app/check.py dns catalog.zt-data.svc.cluster.local
-kubectl --context kind-zero-trust -n zt-edge exec deployment/frontend -- python /app/check.py deny http://catalog.zt-data:8080/items
-kubectl --context kind-zero-trust -n zt-app exec deployment/api -- python /app/check.py allow http://catalog.zt-data:8080/items
+kubectl -n zt-edge exec deployment/frontend -- python /app/check.py dns catalog.zt-data.svc.cluster.local
+kubectl -n zt-edge exec deployment/frontend -- python /app/check.py deny http://catalog.zt-data:8080/items
+kubectl -n zt-app exec deployment/api -- python /app/check.py allow http://catalog.zt-data:8080/items
 ```
 
 Attendu : DNS fonctionne ; l'accès direct frontend → catalog échoue ; l'accès api → catalog réussit. Corréler l'échec avec un flux Hubble `DROPPED` / refus de politique. Un timeout seul ne prouve pas que la NetworkPolicy en est la cause.
@@ -28,7 +28,7 @@ Attendu : DNS fonctionne ; l'accès direct frontend → catalog échoue ; l'acc�
 Le namespace non autorisé est testé avec :
 
 ```console
-kubectl --context kind-zero-trust -n zt-untrusted exec deployment/probe -- python /app/check.py deny http://api.zt-app:8080/health
+kubectl -n zt-untrusted exec deployment/probe -- python /app/check.py deny http://api.zt-app:8080/health
 ```
 
 Le script complet teste également les PodIP pour exclure une simple défaillance de Service.
@@ -36,7 +36,7 @@ Le script complet teste également les PodIP pour exclure une simple défaillanc
 ## 3. Prouver un refus RBAC depuis le workload
 
 ```console
-kubectl --context kind-zero-trust -n zt-app exec deployment/auditor -- python /app/audit.py
+kubectl -n zt-app exec deployment/auditor -- python /app/audit.py
 ```
 
 | Requête authentifiée par auditor | Réponse attendue |
@@ -51,10 +51,10 @@ Le premier succès prouve que DNS, TLS et authentification fonctionnent. Le 403 
 ## 4. Prouver le rejet d'une configuration dangereuse
 
 ```console
-kubectl --context kind-zero-trust create --dry-run=server -f tests/fixtures/safe.yaml
-kubectl --context kind-zero-trust create --dry-run=server -f tests/fixtures/privileged.yaml
-kubectl --context kind-zero-trust create --dry-run=server -f tests/fixtures/hostpath.yaml
-kubectl --context kind-zero-trust create --dry-run=server -f tests/fixtures/privilege-escalation.yaml
+kubectl create --dry-run=server -f tests/fixtures/safe.yaml
+kubectl create --dry-run=server -f tests/fixtures/privileged.yaml
+kubectl create --dry-run=server -f tests/fixtures/hostpath.yaml
+kubectl create --dry-run=server -f tests/fixtures/privilege-escalation.yaml
 ```
 
 Attendu : le Pod conforme est accepté en dry-run, les autres sont rejetés par `zt-workload-baseline`. Aucun pod dangereux n'est lancé. Les autres fixtures couvrent SYS_ADMIN, root, filesystem accessible en écriture, compte default, jeton automatique, hostNetwork et initContainer privilégié.
@@ -67,7 +67,7 @@ Prendre le cas d'un frontend compromis : accès au processus et aux données loc
 
 ```console
 # Le profil de base autorise les chemins HTTP sur le port autorisé.
-kubectl --context kind-zero-trust -n zt-edge exec deployment/frontend -- python /app/check.py allow http://api.zt-app:8080/admin
+kubectl -n zt-edge exec deployment/frontend -- python /app/check.py allow http://api.zt-app:8080/admin
 python tools/lab.py l7-on
 python tools/lab.py test --l7
 python tools/lab.py l7-off
