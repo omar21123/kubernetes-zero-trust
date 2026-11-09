@@ -30,7 +30,7 @@ spec:
         - -c
         - print('safe')
         securityContext:
-          allowPrivilegeEscalation: false
+          allowPrivilegeEscalation: true
           readOnlyRootFilesystem: true
           capabilities:
             drop:

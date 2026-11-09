@@ -247,7 +247,9 @@ def test_suite(l7=False):
         payload = json.loads(k("get", "deployment", "api", "-n", "zt-app", "-o", "json").stdout)
         body = {"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "bad-deployment", "namespace": "zt-app"},
                 "spec": payload["spec"]}
-        body["spec"]["template"]["spec"]["containers"][0]["securityContext"]["privileged"] = True
+        # privileged implique allowPrivilegeEscalation: true (sinon l'API refuse avant Kyverno).
+        body["spec"]["template"]["spec"]["containers"][0]["securityContext"].update(
+            privileged=True, allowPrivilegeEscalation=True)
         result = k("create", "--dry-run=server", "-f", "-", input_text=json.dumps(body), check=False)
         assert result.returncode != 0 and "zt-workload-baseline" in result.stderr, result.stdout + result.stderr
         return result
