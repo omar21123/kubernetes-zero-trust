@@ -8,7 +8,7 @@ Le projet fournit une application à trois tiers, quatre namespaces, cinq Servic
 
 Le laboratoire tourne dans **AWS** : Terraform crée une VM EC2 qui exécute Kubernetes (k3s), puis un script Python installe les protections et l'application. **Débutants : suivre le [guide pas à pas](docs/guide-aws.md).**
 
-> État de validation : voir [validation.md](docs/validation.md) pour ce qui a réellement été exécuté (tests hors cluster, `terraform validate`, CI sur k3s) et ce qui reste à faire sur un compte AWS.
+> État de validation : sur un vrai cluster k3s installé par le même script que la VM AWS (CI GitHub), **50/50** contrôles réussis en profil de base et **51/51** en profil L7. Le code Terraform est validé et testé avec un AWS simulé ; la création réelle sur un compte AWS reste à constater lors du premier `apply`. Détails : [validation.md](docs/validation.md).
 
 ## Architecture
 

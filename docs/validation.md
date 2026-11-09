@@ -1,23 +1,34 @@
 # État de validation
 
-Date de création : **2 novembre 2026**.
+Mise à jour : **9 novembre 2026**, passage au déploiement AWS avec Terraform et k3s.
 
-## Exécuté sur la machine de création
+## Exécuté et réussi
 
-- Huit tests Python réussis : chaîne frontend/API/catalog via HTTP local, routes de santé, 404, erreur amont 502 et robustesse des sondes de sécurité.
-- Contrôle structurel réussi sur **40 ressources** applicatives et politiques : YAML lisible, ressources sans doublon, identités dédiées, RBAC borné, isolation des quatre namespaces, DNS UDP/TCP et contexts de sécurité.
-- Tests du moteur **Kyverno CLI 1.15.2** réussis : 60 résultats attendus conformes, dont 51 évaluations de règles et 9 exclusions de Services non ciblés. Cela couvre les Pods conformes, dix types de configurations dangereuses, les cinq Deployments applicatifs et un Deployment privilégié rejeté par les règles auto-générées.
-- Diagnostic des prérequis : Python disponible ; **Docker, kind, kubectl et Helm absents du PATH**.
+**Hors cluster** (machine de développement et CI GitHub Actions, job `offline`) :
 
-Les sockets HTTP locaux ont nécessité une exécution autorisée hors de l'isolation réseau de l'outil. PyYAML 6.0.3 a servi aux vérifications, sans ajouter de dépendance tierce aux conteneurs applicatifs.
+- 8 tests Python : chaîne frontend/API/catalog, routes de santé, 404, erreur amont 502 et robustesse des sondes de sécurité.
+- Contrôle structurel `tools/validate.py` sur **40 ressources** : identités dédiées, RBAC borné, Default Deny dans les quatre namespaces, DNS UDP/TCP et contextes de sécurité.
+- **Kyverno CLI 1.15.2** : Pods conformes, configurations dangereuses et règles auto-générées pour les Deployments.
+- **Terraform** : `fmt -check`, `validate`, et `terraform test` avec un AWS simulé (détection de votre IP, choix du sous-réseau, IP fixe injectée dans le script de démarrage, commande SSH). Le script de démarrage généré passe `bash -n`.
 
-Le système refuse la création de `.git/HEAD.lock` dans le dossier de travail initial. La publication GitHub est donc effectuée depuis une copie temporaire des fichiers du projet, avec un commit initial sur `main`. Le dépôt distant est [omar21123/kubernetes-zero-trust](https://github.com/omar21123/kubernetes-zero-trust), privé. Les métadonnées Git du dossier initial ne sont pas synchronisées ; pour poursuivre avec un dépôt local complet, utiliser la commande de clonage indiquée dans [exploitation.md](exploitation.md).
+**Sur un vrai cluster k3s** (CI GitHub Actions, job `integration`, Ubuntu 24.04) installé avec **le même script `cluster/install-k3s.sh`** que la VM AWS, puis `python tools/lab.py up` :
+
+- profil de base : **50/50 contrôles réussis** (DNS, flux autorisés, refus réseau par Service et par IP de pod, refus vers l'API Kubernetes, absence de jeton, RBAC HTTP 403 réels, rejets d'admission Kyverno, Deployment privilégié refusé par les règles auto-générées) ;
+- profil L7 : **51/51 contrôles réussis**, dont `GET /admin` refusé en HTTP 403 par Cilium.
+
+Les rapports JSON sont disponibles dans l'artifact `zero-trust-results` de chaque exécution de la CI.
+
+## Problèmes trouvés par la première exécution réelle, puis corrigés
+
+| Problème | Correction |
+|---|---|
+| Pods sans réseau (`failed to find plugin "bridge" in path [/opt/cni/bin]`) : Cilium écrivait sa configuration CNI dans des dossiers que k3s ne lit pas | Chemins CNI par défaut dans `cluster/cilium-values.yaml` ; `lab.py up` attend désormais CoreDNS pour détecter ce cas tout de suite |
+| 3 tests d'admission en échec : les fixtures privilégiées combinaient `privileged: true` et `allowPrivilegeEscalation: false`, refusé par l'API Kubernetes elle-même **avant** Kyverno | Fixtures et Deployment de test rendus valides (`allowPrivilegeEscalation: true`) : le rejet vient bien de `zt-workload-baseline` |
 
 ## Non exécuté ici
 
-La création du cluster, l'installation des charts, le traitement par les webhooks Kyverno, l'application des règles par Cilium, les captures Hubble et l'exécution distante GitHub Actions n'ont pas été réalisés dans cet environnement. Aucun rapport d'intégration positif ni capture Hubble n'est fourni artificiellement.
-
-La CI et les commandes de laboratoire sont préparées pour produire ces preuves. Des ajustements d'environnement ou d'intégration peuvent être nécessaires avant le premier passage complet ; une validation structurelle seule ne garantit pas la réussite du déploiement.
+- **`terraform apply` sur un vrai compte AWS** : aucun identifiant AWS n'était disponible dans l'environnement de création. Le code est validé et testé avec un AWS simulé, et l'installation de k3s est testée en CI, mais la création réelle de la VM reste à constater lors de votre premier `apply`.
+- Captures Hubble : à réaliser pendant la soutenance (voir [demonstrations.md](demonstrations.md)).
 
 ## Reproduire les vérifications
 
@@ -26,11 +37,9 @@ python -m pip install -r requirements-dev.txt
 python tools/validate.py
 python -m unittest discover -s tests -v
 kyverno test tests/kyverno --remove-color
-python tools/lab.py doctor
-python tools/lab.py up
-python tools/lab.py test
-python tools/lab.py l7-on
-python tools/lab.py test --l7
+terraform -chdir=terraform init
+terraform -chdir=terraform validate
+terraform -chdir=terraform test
 ```
 
-Après exécution, joindre les rapports générés sous `artifacts/`, relever les versions et compléter ce document avec le résultat réel. Conserver les échecs dans les preuves, puis documenter les corrections et la nouvelle exécution.
+Sur AWS, suivre le [guide](guide-aws.md) jusqu'à `python tools/lab.py test` et `python tools/lab.py test --l7`. Joindre ensuite les rapports `artifacts/*.json` au dossier, avec la date et les versions utilisées. Conserver les échecs éventuels dans les preuves, puis documenter les corrections et la nouvelle exécution.

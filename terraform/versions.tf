@@ -1,7 +1,7 @@
 # Versions de Terraform et des "providers" (plugins) utilisés.
 # `terraform init` télécharge ces plugins dans le dossier .terraform/.
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.7"
 
   required_providers {
     aws = {
