@@ -9,7 +9,7 @@ Mise à jour : **9 novembre 2026**, passage au déploiement AWS avec Terraform e
 - 8 tests Python : chaîne frontend/API/catalog, routes de santé, 404, erreur amont 502 et robustesse des sondes de sécurité.
 - Contrôle structurel `tools/validate.py` sur **40 ressources** : identités dédiées, RBAC borné, Default Deny dans les quatre namespaces, DNS UDP/TCP et contextes de sécurité.
 - **Kyverno CLI 1.15.2** : Pods conformes, configurations dangereuses et règles auto-générées pour les Deployments.
-- **Terraform** : `fmt -check`, `validate`, et `terraform test` avec un AWS simulé (détection de votre IP, choix du sous-réseau, IP fixe injectée dans le script de démarrage, commande SSH). Le script de démarrage généré passe `bash -n`.
+- **Terraform** : `fmt -check` et `validate` (CI), et `terraform test` avec un AWS simulé (exécuté sur la machine de développement, puis ajouté à la CI) (détection de votre IP, choix du sous-réseau, IP fixe injectée dans le script de démarrage, commande SSH). Le script de démarrage généré passe `bash -n`.
 
 **Sur un vrai cluster k3s** (CI GitHub Actions, job `integration`, Ubuntu 24.04) installé avec **le même script `cluster/install-k3s.sh`** que la VM AWS, puis `python tools/lab.py up` :
 
