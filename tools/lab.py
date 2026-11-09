@@ -78,7 +78,8 @@ def fetch_kubeconfig():
     print(f"Recuperation du kubeconfig depuis ubuntu@{address} (k3s s'installe en 2 a 3 minutes)...", flush=True)
     for attempt in range(40):
         result = run("scp", "-i", key, "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10",
-                     f"ubuntu@{address}:zero-trust.kubeconfig", KUBECONFIG, check=False, timeout=60)
+                     # Chemin relatif : sous Windows, "C:\\..." serait lu comme un hôte distant "C".
+                     f"ubuntu@{address}:zero-trust.kubeconfig", KUBECONFIG.name, check=False, timeout=60)
         if result.returncode == 0:
             print(f"OK: {KUBECONFIG.name} cree. Etape suivante: python tools/lab.py up")
             return
