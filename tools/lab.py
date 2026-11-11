@@ -5,6 +5,7 @@ Ordre normal :
     python tools/lab.py kubeconfig     # crée l'accès au cluster (aws eks update-kubeconfig)
     python tools/lab.py up             # installe Cilium, Kyverno puis l'application
     python tools/lab.py test           # démonstrations automatiques
+    python tools/lab.py demo           # démonstration guidée pour la soutenance (Entrée entre les étapes)
     terraform -chdir=terraform destroy # supprime tout dans AWS (~10 min)
 """
 import argparse
@@ -276,6 +277,131 @@ def test_suite(l7=False):
         raise RuntimeError("Au moins un controle a echoue. Consulter le rapport.")
 
 
+def demo(auto=False):
+    """Démonstration guidée pour la soutenance : chaque étape affiche la commande,
+    l'exécute sur le cluster, dit si le résultat est celui attendu, puis attend Entrée."""
+    ready()
+    line = "=" * 74
+    results = []
+
+    def pause():
+        if not auto:
+            try:
+                input("\n   [Entrée] étape suivante... ")
+            except EOFError:
+                pass
+
+    def title(text, *explain):
+        print("\n" + line + "\n  " + text + "\n" + line)
+        for sentence in explain:
+            print("  " + sentence)
+
+    def show(display, runner, expect, meaning, keep=None):
+        print("\n$ " + display, flush=True)
+        result = runner()
+        output = (result.stdout + result.stderr).strip()
+        lines = output.splitlines()
+        if keep:
+            lines = [entry for entry in lines if keep(entry)] or lines[-3:]
+        for entry in lines[:25]:
+            print("    " + entry)
+        good = expect(result, output)
+        results.append(good)
+        print(("  -> OK : " if good else "  -> ATTENTION, on attendait : ") + meaning, flush=True)
+        return result
+
+    def kc(*args, timeout=90):
+        return lambda: k(*args, check=False, timeout=timeout)
+
+    def blocked(result, output):
+        return result.returncode == 0 and "TCP blocked" in output
+
+    def succeeded(result, output):
+        return result.returncode == 0
+
+    def kyverno_refused(result, output):
+        return result.returncode != 0 and "zt-workload-baseline" in output
+
+    print("\nAvant de commencer, dans deux autres terminaux (même KUBECONFIG) :")
+    print("  kubectl -n zt-edge port-forward service/frontend 8080:8080        -> http://localhost:8080")
+    print("  kubectl -n kube-system port-forward service/hubble-ui 12000:80    -> http://localhost:12000")
+
+    title("1. LE CLUSTER ET NOS RÈGLES",
+          "Deux nœuds EKS, nos cinq workloads, 12 NetworkPolicy et la politique Kyverno.")
+    show("kubectl get nodes", kc("get", "nodes"), succeeded, "les nœuds répondent")
+    show("kubectl get pods -A -l 'app in (frontend,api,catalog,auditor,probe)' -o wide",
+         kc("get", "pods", "-A", "-l", "app in (frontend,api,catalog,auditor,probe)", "-o", "wide"),
+         succeeded, "les 5 workloads tournent, répartis sur les nœuds")
+    show("kubectl get networkpolicies -A", kc("get", "networkpolicies", "-A"), succeeded, "12 règles réseau en place")
+    show("kubectl get clusterpolicy zt-workload-baseline", kc("get", "clusterpolicy", "zt-workload-baseline"),
+         lambda r, o: r.returncode == 0 and "True" in o, "la politique d'admission est prête")
+    pause()
+
+    title("2. L'APPLICATION FONCTIONNE : FLUX AUTORISÉS",
+          "Le frontend appelle l'api, qui appelle le catalog. La réponse contient les trois tiers.")
+    show("kubectl -n zt-edge exec deployment/frontend -- python /app/check.py allow http://127.0.0.1:8080/",
+         kc("exec", "-n", "zt-edge", "deployment/frontend", "--", "python", "/app/check.py", "allow",
+            "http://127.0.0.1:8080/"), succeeded, "frontend -> api -> catalog autorisé")
+    pause()
+
+    title("3. DÉMONSTRATION 1 : UNE COMMUNICATION NON AUTORISÉE EST BLOQUÉE",
+          "Ouvrez Hubble (namespaces zt-edge et zt-untrusted) : ces flux apparaissent en rouge, dropped.")
+    show("kubectl -n zt-edge exec deployment/frontend -- python /app/check.py deny http://catalog.zt-data:8080/items",
+         kc("exec", "-n", "zt-edge", "deployment/frontend", "--", "python", "/app/check.py", "deny",
+            "http://catalog.zt-data:8080/items"), blocked, "frontend -> catalog bloqué (court-circuit interdit)")
+    show("kubectl -n zt-untrusted exec deployment/probe -- python /app/check.py deny http://api.zt-app:8080/health",
+         kc("exec", "-n", "zt-untrusted", "deployment/probe", "--", "python", "/app/check.py", "deny",
+            "http://api.zt-app:8080/health"), blocked, "probe (locataire hostile) -> api bloqué")
+    show("kubectl -n zt-app exec deployment/api -- python /app/check.py allow http://catalog.zt-data:8080/items",
+         kc("exec", "-n", "zt-app", "deployment/api", "--", "python", "/app/check.py", "allow",
+            "http://catalog.zt-data:8080/items"), succeeded, "pour comparaison : api -> catalog reste autorisé")
+    pause()
+
+    title("4. DÉMONSTRATION 2 : UN WORKLOAD N'ACCÈDE PAS À UNE RESSOURCE NON AUTORISÉE",
+          "Le frontend n'a aucun jeton ; l'auditor ne peut lire qu'un seul ConfigMap.")
+    show("kubectl -n zt-edge exec deployment/frontend -- ls /var/run/secrets/kubernetes.io/serviceaccount",
+         kc("exec", "-n", "zt-edge", "deployment/frontend", "--", "ls",
+            "/var/run/secrets/kubernetes.io/serviceaccount"),
+         lambda r, o: r.returncode != 0, "aucun jeton dans le frontend : rien à voler")
+    show("kubectl -n zt-app exec deployment/auditor -- python /app/audit.py",
+         kc("exec", "-n", "zt-app", "deployment/auditor", "--", "python", "/app/audit.py"),
+         succeeded, "200 pour public-info, 403 pour tout le reste")
+    account = "system:serviceaccount:zt-app:auditor"
+    show(f"kubectl auth can-i list secrets -n zt-app --as={account}",
+         kc("auth", "can-i", "list", "secrets", "-n", "zt-app", "--as=" + account),
+         lambda r, o: o.strip().endswith("no"), "l'auditor ne peut pas lister les secrets")
+    pause()
+
+    title("5. DÉMONSTRATION 3 : UNE CONFIGURATION DANGEREUSE EST REJETÉE",
+          "On essaie vraiment de créer des pods dangereux : Kyverno refuse avant tout démarrage.")
+    for fixture, meaning in [("privileged", "pod privilégié refusé par Kyverno"),
+                             ("hostpath", "pod qui monte le disque du nœud refusé par Kyverno")]:
+        path = f"tests/fixtures/{fixture}.yaml"
+        created = show(f"kubectl apply -f {path}", kc("apply", "-f", path), kyverno_refused, meaning)
+        if created.returncode == 0:  # ne jamais laisser un pod dangereux derrière la démonstration
+            k("delete", "-f", path, "--ignore-not-found", check=False)
+    show("kubectl create --dry-run=server -f tests/fixtures/safe.yaml",
+         kc("create", "--dry-run=server", "-f", "tests/fixtures/safe.yaml"), succeeded,
+         "un pod conforme est accepté : la politique ne bloque pas tout")
+    pause()
+
+    if is_eks() and shutil.which("terraform"):
+        title("6. L'INFRASTRUCTURE CORRESPOND AU CODE",
+              "Terraform compare AWS à nos fichiers .tf : aucune différence attendue.")
+        show("terraform -chdir=terraform plan",
+             lambda: run("terraform", "-chdir=terraform", "plan", "-no-color", check=False, timeout=300),
+             lambda r, o: r.returncode == 0 and "No changes" in o,
+             "AWS correspond exactement au code Terraform",
+             keep=lambda entry: any(word in entry for word in ("No changes", "Plan:", "matches", "Error")))
+
+    print("\n" + line)
+    print(f"  {sum(results)}/{len(results)} vérifications conformes.")
+    print("  Pour les 50 contrôles complets : python tools/lab.py test")
+    print(line)
+    if not all(results):
+        raise RuntimeError("Au moins une étape de la démonstration n'a pas donné le résultat attendu.")
+
+
 def l7_toggle(enabled):
     if enabled:
         apply("policies/optional/frontend-l7.yaml")
@@ -289,13 +415,17 @@ def l7_toggle(enabled):
 
 def main():
     commands = {"doctor": doctor, "kubeconfig": fetch_kubeconfig, "up": up, "deploy": deploy,
-                "test": test_suite, "l7-on": lambda: l7_toggle(True), "l7-off": lambda: l7_toggle(False)}
+                "test": test_suite, "demo": demo,
+                "l7-on": lambda: l7_toggle(True), "l7-off": lambda: l7_toggle(False)}
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=commands)
     parser.add_argument("--l7", action="store_true", help="Verifier aussi le profil HTTP L7 (avec test)")
+    parser.add_argument("--yes", action="store_true", help="demo sans pause entre les etapes (CI)")
     args = parser.parse_args()
     if args.command == "test":
         test_suite(args.l7)
+    elif args.command == "demo":
+        demo(auto=args.yes)
     else:
         commands[args.command]()
 

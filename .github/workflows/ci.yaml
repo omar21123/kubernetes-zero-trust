@@ -57,6 +57,7 @@ jobs:
           cp ~/zero-trust.kubeconfig .
       - run: python tools/lab.py up
       - run: python tools/lab.py test
+      - run: python tools/lab.py demo --yes
       - run: python tools/lab.py l7-on
       - run: python tools/lab.py test --l7
       - name: Diagnostics

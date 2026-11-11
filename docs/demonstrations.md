@@ -1,5 +1,36 @@
 # Démonstration et soutenance
 
+## Démo en direct : le jour J
+
+Recréer l'architecture prend environ 25 minutes (Terraform ≈ 14 min, `lab.py up` ≈ 5 à 8 min) : tout est prêt **avant** de passer devant le jury, et la démo elle-même dure environ 5 minutes.
+
+**À faire depuis le réseau où aura lieu la démo.** L'API du cluster n'accepte que l'adresse IP détectée au moment de `terraform apply`. Si l'IP change (autre Wi-Fi, partage de connexion), `kubectl` échoue : relancer `terraform -chdir=terraform apply`, qui met à jour l'adresse autorisée en quelques minutes. Pour autoriser deux réseaux à l'avance, renseigner `allowed_cidrs` dans `terraform/terraform.tfvars` (une adresse `/32` par réseau).
+
+| Quand | Commande (PowerShell, à la racine du dépôt) | Durée |
+|---|---|---|
+| T − 40 min | `git pull` puis `aws sts get-caller-identity` (doit afficher `TerraformUser`) | 1 min |
+| T − 40 min | `terraform -chdir=terraform apply` puis `yes` | ≈ 14 min |
+| T − 25 min | `python tools/lab.py kubeconfig` (nouveau cluster = nouveau kubeconfig) | 10 s |
+| T − 25 min | `$env:KUBECONFIG = "$PWD\zero-trust.kubeconfig"` puis `python tools/lab.py up` | 5 à 8 min |
+| T − 15 min | `python tools/lab.py test` : 50/50, et des flux à montrer dans Hubble | 3 min |
+| T − 10 min | Terminal 2 : `kubectl -n zt-edge port-forward service/frontend 8080:8080`, ouvrir http://localhost:8080 | — |
+| T − 10 min | Terminal 3 : `kubectl -n kube-system port-forward service/hubble-ui 12000:80`, ouvrir http://localhost:12000 | — |
+| **Démo** | Terminal 1 : `python tools/lab.py demo` (Entrée entre chaque étape) | ≈ 5 min |
+| Après | `terraform -chdir=terraform destroy` puis `yes` | ≈ 11 min |
+
+`python tools/lab.py demo` affiche chaque commande avant de l'exécuter, puis dit si le résultat est celui attendu :
+
+1. le cluster, les 5 workloads, les 12 NetworkPolicy et la ClusterPolicy ;
+2. l'application : frontend → api → catalog ;
+3. **démonstration 1** : frontend → catalog et probe → api bloqués (à montrer aussi dans Hubble), api → catalog autorisé ;
+4. **démonstration 2** : aucun jeton dans le frontend, `audit.py` (200 puis 403), `kubectl auth can-i` ;
+5. **démonstration 3** : `kubectl apply` d'un pod privilégié et d'un pod `hostPath`, refusés par Kyverno ; un pod conforme accepté ;
+6. `terraform plan` : « No changes », l'infrastructure correspond au code.
+
+Plan de secours : si le cluster ne peut pas être joint le jour J, présenter les captures du rapport et la sortie de `python tools/lab.py test` de la répétition. Coût : ≈ 0,50 $ par séance, à condition de lancer `destroy` juste après.
+
+## Déroulé manuel, commande par commande
+
 Ce déroulé couvre les quatre preuves demandées. Prévoir 10 à 15 minutes après le déploiement. Les statuts ci-dessous sont des résultats attendus, pas des captures d'une exécution déjà réalisée.
 
 ## 1. Montrer l'état et le fonctionnement nominal

@@ -48,6 +48,7 @@ terraform -chdir=terraform apply                 # crée le cluster EKS + 2 nœu
 python tools/lab.py kubeconfig                   # crée l'accès kubectl
 python tools/lab.py up                           # Cilium, Kyverno, puis l'application
 python tools/lab.py test                         # démonstrations automatiques
+python tools/lab.py demo                         # démo guidée pour la soutenance (docs/demonstrations.md)
 terraform -chdir=terraform destroy               # fin de séance : tout supprimer (~10 min)
 ```
 
